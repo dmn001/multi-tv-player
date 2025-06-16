@@ -7,6 +7,8 @@ A Python application to display multiple IPTV streams simultaneously using VLC, 
 
 ![Example screenshot](2025-06-16_18-31-13_combined_grid.jpg)
 
+![Controls](controls.png)
+
 ---
 
 ## Requirements
