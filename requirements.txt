@@ -1,0 +1,5 @@
+PySide6
+python-vlc
+screeninfo
+requests
+Pillow
