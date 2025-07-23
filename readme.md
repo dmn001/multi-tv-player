@@ -75,23 +75,30 @@ Files are named with the timestamp and safe channel name. Combined screenshots m
 
 ---
 
-## Configuration
+### Configuration
 
-Edit `stream_groups` in the `__main__` section to customize your channel groups:
+All application settings are now managed through a **YAML configuration file**, providing a cleaner and more flexible way to customize your setup.
 
-```python
-stream_groups = {
-    '3x3': ['101','102','103','104','105','204','203','107','106'],
-    '2x2': ['101','102','103','104'],
-    '5 HD': ['105'],
-    '34CBBC': ['107','106','204','203'],
-    'BBC One HD': ['101'],
-    'ITV1 HD': ['103'],
-    'BBC News SD': ['231']
-}
+### `config.yaml`
+
+A file named `config.yaml` (or `example_config.yaml`) should be present in the same directory as the script. If `config.yaml` doesn't exist, the script will fall back to `example_config.yaml`. It's recommended to **rename `example_config.yaml` to `config.yaml`** and then modify it with your personal settings, as updates to the repository may overwrite changes to `example_config.yaml`.
+
+Here's an example of the `config.yaml` structure:
+
+```yaml
+# Rename this file to config.yaml for custom settings.
+
+playlist_url: "[http://192.168.1.73:9981/playlist](http://192.168.1.73:9981/playlist)" # Your M3U playlist URL
+
+stream_groups: # Define groups of channel numbers for quick switching
+  3x3: ['101', '102', '103', '104', '105', '204', '203', '107', '106']
+  2x2: ['101', '102', '103', '104']
+  5 HD: ['105']
+  34CBBC: ['107', '106', '204', '203']
+  BBC One HD: ['101']
+  ITV1 HD: ['103']
+  BBC News SD: ['231']
 ```
-
-You can change the playlist URL inside `load_channels_from_url()` to point to your TVHeadend or IPTV provider address.
 
 ---
 
