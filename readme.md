@@ -121,6 +121,31 @@ This launches the full-screen video grid. The control panel appears automaticall
 
 ---
 
+### Simultaneous Playback in TVHeadend 📺
+---
+
+For simultaneous channel playback in **TVHeadend**, a key understanding lies in how digital broadcasts are structured and delivered.
+
+### Muxes (Multiplexes)
+---
+
+In **DVB-T/T2** broadcasts, channels are organized into groups called **"muxes"** (multiplexes). Each mux is transmitted on a specific frequency. A single tuner, once tuned to a particular mux, can access all the channels carried on that frequency without requiring additional tuners. **Note: For Freeview HD in the UK, it's common for multiple HD channels (e.g., BBC One HD, ITV1 HD) to be grouped on the same high-capacity DVB-T2 mux, allowing a single tuner to access them concurrently.**
+
+---
+
+### Multiple Tuners for Different Muxes
+---
+
+In order to view channels from **different muxes concurrently**, you'll need **multiple tuners**. For instance, if **BBC ONE HD** and **BBC News SD** are broadcast on separate muxes, watching both at the same time will necessitate the use of two distinct tuners.
+
+---
+
+### IPTV/Streaming Sources
+---
+
+For **IPTV playlists** or servers that provide independent streams (such as those involving transcoding or direct feeds), the limitations imposed by muxes generally **do not apply**. In these scenarios, each stream is handled independently, provided your server and network infrastructure can manage the load.
+
+
 ## License
 
 MIT License
