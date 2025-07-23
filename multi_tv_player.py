@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime
 import requests
 import re
+import yaml
 
 import vlc
 from screeninfo import get_monitors
@@ -19,8 +20,24 @@ from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeyEvent
 
+# --- Configuration Loading Function ---
+def load_config(config_filename="config.yaml", example_config_filename="example_config.yaml"):
+    config_path = Path(config_filename)
+    example_config_path = Path(example_config_filename)
+
+    if config_path.exists():
+        print(f"Loading configuration from {config_filename}")
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f)
+    elif example_config_path.exists():
+        print(f"Loading configuration from {example_config_filename} (rename it to {config_filename} for custom settings)")
+        with open(example_config_path, 'r') as f:
+            return yaml.safe_load(f)
+    else:
+        raise FileNotFoundError(f"Neither {config_filename} nor {example_config_filename} found.")
+
 class MultiPlayerApp(QMainWindow):
-    def __init__(self, stream_groups_numbers, all_groups_labels):
+    def __init__(self, config):
         super().__init__()
         self.setWindowTitle("Multi-TV-player - Videos")
         self.setMinimumSize(640, 480)
@@ -37,32 +54,33 @@ class MultiPlayerApp(QMainWindow):
         self.grid_rows = 2
         self.grid_cols = 2
 
+        self.config = config
         self.load_channels_from_url()
 
-        self.stream_groups_numbers = stream_groups_numbers
-        self.all_groups_labels = all_groups_labels
+        self.stream_groups_numbers = list(self.config['stream_groups'].values())
+        self.all_groups_labels = list(self.config['stream_groups'].keys())
         self.stream_groups = [
-            [self.channels_by_number[number] for number in group] for group in stream_groups_numbers
+            [self.channels_by_number[number] for number in group] for group in self.stream_groups_numbers
         ]
         self.current_group_index = 0
 
         self.instance = vlc.Instance('--quiet', '--network-caching=100', "--aout=directsound")
         self.setup_players(self.stream_groups[self.current_group_index])
-        self.showFullScreenOnMonitor(1)
+        self.showFullScreenOnMonitor(0)
 
     def keyPressEvent(self, event: QKeyEvent):
-            if event.key() == Qt.Key_F11:
-                if self.isFullScreen():
-                    self.setWindowFlag(Qt.FramelessWindowHint, False)  # reset frameless
-                    self.showNormal()
-                else:
-                    self.setWindowFlag(Qt.FramelessWindowHint, True)
-                    self.showFullScreen()
+        if event.key() == Qt.Key_F11:
+            if self.isFullScreen():
+                self.setWindowFlag(Qt.FramelessWindowHint, False)  # reset frameless
+                self.showNormal()
             else:
-                super().keyPressEvent(event)
+                self.setWindowFlag(Qt.FramelessWindowHint, True)
+                self.showFullScreen()
+        else:
+            super().keyPressEvent(event)
 
     def load_channels_from_url(self):
-        url = "http://192.168.1.73:9981/playlist"
+        url = self.config['playlist_url']
         self.channels = {}            # channel_name -> URL
         self.channels_by_number = {}  # channel_number -> (channel_name, URL)
 
@@ -496,25 +514,23 @@ class ControlsWindow(QDialog):
 
         print(f"Combined screenshot saved at {combined_filename}")
 
-if __name__ == "__main__":
-    stream_groups = {
-        '3x3':         ['101', '102', '103', '104', '105', '204', '203', '107', '106'],
-        '2x2':         ['101', '102', '103', '104'],
-        '5 HD':        ['105'],
-        '34CBBC':      ['107', '106', '204', '203'],
-        'BBC One HD':  ['101'],
-        'ITV1 HD':     ['103'],
-        'BBC News SD': ['231']
-    }
 
-    all_labels = list(stream_groups.keys())
-    all_groups = list(stream_groups.values())
+if __name__ == "__main__":
+    # --- Load Configuration ---
+    try:
+        config = load_config()
+    except FileNotFoundError as e:
+        print(e)
+        sys.exit(1)
 
     app = QApplication(sys.argv)
-    main_app = MultiPlayerApp(all_groups, all_labels)
+    main_app = MultiPlayerApp(config)
     main_app.show()
 
-    controls = ControlsWindow(main_app, main_app.players, all_groups, all_labels)
+    stream_groups_numbers = list(config['stream_groups'].values())
+    all_groups_labels = list(config['stream_groups'].keys())
+
+    controls = ControlsWindow(main_app, main_app.players, stream_groups_numbers, all_groups_labels)
     controls.show()
 
     # Connect closing controls window to quit the whole app

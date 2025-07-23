@@ -1,0 +1,12 @@
+# Rename this file to config.yaml for custom settings.
+
+playlist_url: "http://192.168.1.73:9981/playlist"
+
+stream_groups:
+  3x3: ['101', '102', '103', '104', '105', '204', '203', '107', '106']
+  2x2: ['101', '102', '103', '104']
+  5 HD: ['105']
+  34CBBC: ['107', '106', '204', '203']
+  BBC One HD: ['101']
+  ITV1 HD: ['103']
+  BBC News SD: ['231']
