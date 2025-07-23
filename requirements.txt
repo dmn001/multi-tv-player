@@ -3,3 +3,4 @@ python-vlc
 screeninfo
 requests
 Pillow
+PyYAML
