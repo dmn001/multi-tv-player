@@ -88,7 +88,7 @@ Here's an example of the `config.yaml` structure:
 ```yaml
 # Rename this file to config.yaml for custom settings.
 
-playlist_url: "[http://192.168.1.73:9981/playlist](http://192.168.1.73:9981/playlist)" # Your M3U playlist URL
+playlist_url: "http://192.168.1.73:9981/playlist" # Your M3U playlist URL
 
 stream_groups: # Define groups of channel numbers for quick switching
   3x3: ['101', '102', '103', '104', '105', '204', '203', '107', '106']
