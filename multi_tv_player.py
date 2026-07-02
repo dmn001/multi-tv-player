@@ -1159,24 +1159,34 @@ class ControlsWindow(QWidget):
         return super().eventFilter(obj, event)
 
     def build_controls_ui(self):
-        row = 0
-        for col, (label, slot) in enumerate([
+        buttons = []
+        
+        # 1. Global actions
+        global_actions = [
             ("Unmute All", self.master_app.unmute_all),
             ("Mute All", self.master_app.mute_all),
             ("All Subs ON", self.master_app.subs_all_on),
             ("All Subs OFF", self.master_app.subs_all_off),
             ("Screenshots", self.master_app.take_screenshot_all),
             ("Combined Screenshot", self.master_app.take_combined_screenshot)
-        ]):
+        ]
+        
+        for label, slot in global_actions:
             btn = QPushButton(label)
             btn.clicked.connect(slot)
-            self.layout.addWidget(btn, row, col)
+            buttons.append(btn)
             
-        row = 1
+        # 2. Group presets
         for i, label in enumerate(self.all_groups_labels):
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked, i=i: self.master_app.switch_group(i))
-            self.layout.addWidget(btn, row, i)
+            buttons.append(btn)
+            
+        # Layout in 2 columns
+        for i, btn in enumerate(buttons):
+            row = i // 2
+            col = i % 2
+            self.layout.addWidget(btn, row, col)
             
         for btn in self.findChildren(QPushButton):
             btn.installEventFilter(self)
