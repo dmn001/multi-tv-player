@@ -331,7 +331,7 @@ class OverlayControls(QWidget):
         top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
         
         x = top_left.x() + (rect.width() - self.width()) // 2
-        y = top_left.y() + rect.height() - self.height() - 5
+        y = top_left.y() + rect.height() - self.height()
         self.move(x, y)
 
     def fade_in(self):
@@ -372,7 +372,7 @@ class OverlayControls(QWidget):
 
 
 
-class EPGOverlay(QFrame):
+class EPGOverlay(QWidget):
     def __init__(self, master_app, target_widget, channel_name):
         super().__init__(master_app)
         self.master_app = master_app
@@ -381,20 +381,24 @@ class EPGOverlay(QFrame):
         
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WA_StyledBackground, True)
         
-        self.setStyleSheet("""
-            EPGOverlay {
-                color: white;
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.bg_frame = QFrame(self)
+        self.bg_frame.setStyleSheet("""
+            QFrame {
                 background-color: black;
                 border-radius: 8px;
             }
             QLabel {
+                color: white;
                 background: transparent;
             }
         """)
+        main_layout.addWidget(self.bg_frame)
         
-        self.layout = QVBoxLayout(self)
+        self.layout = QVBoxLayout(self.bg_frame)
         self.layout.setContentsMargins(10, 5, 10, 5)
         self.layout.setSpacing(2)
         
@@ -430,14 +434,18 @@ class EPGOverlay(QFrame):
         return self.opacity_effect.opacity()
         
     def update_fonts(self, is_single_fs):
+        self.now_label.setWordWrap(True)
+        self.next_label.setWordWrap(True)
         if is_single_fs:
-            self.setFixedWidth(600)
-            self.now_label.setStyleSheet("font-weight: bold; font-size: 18px;")
-            self.desc_label.setStyleSheet("font-size: 16px; color: #dddddd;")
-            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 16px; color: #88ff88;")
-            self.next_label.setStyleSheet("font-size: 16px; color: #aaaaaa;")
+            self.setMinimumWidth(600)
+            self.setMaximumWidth(900)
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 24px;")
+            self.desc_label.setStyleSheet("font-size: 18px; color: #dddddd;")
+            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 18px; color: #88ff88;")
+            self.next_label.setStyleSheet("font-size: 18px; color: #aaaaaa;")
         else:
-            self.setFixedWidth(380)
+            self.setMinimumWidth(380)
+            self.setMaximumWidth(600)
             self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
             self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
             self.progress_bar.setStyleSheet("font-family: monospace; font-size: 12px; color: #88ff88;")
@@ -484,8 +492,6 @@ class EPGOverlay(QFrame):
         
     def fade_in(self):
         if not getattr(self.master_app, 'show_epg_overlays', True):
-            return
-        if getattr(self.master_app, 'single_fs_active', False):
             return
             
         self.update_position()
@@ -744,6 +750,7 @@ class MultiPlayerApp(QMainWindow):
         super().resizeEvent(event)
         for t in [10, 50, 200, 500]:
             QTimer.singleShot(t, lambda: [o.update_position() for o in self.overlays])
+            QTimer.singleShot(t, lambda: [e.update_position() for e in getattr(self, 'epg_overlays', [])])
             
         if hasattr(self, 'controls_window'):
             for t in [10, 50, 200, 500]:
@@ -755,6 +762,7 @@ class MultiPlayerApp(QMainWindow):
         for t in [10, 50, 200, 500]:
             QTimer.singleShot(t, lambda: [o.update_position() for o in self.overlays])
             QTimer.singleShot(t, lambda: [c.update_position() for c in self.channel_overlays])
+            QTimer.singleShot(t, lambda: [e.update_position() for e in getattr(self, 'epg_overlays', [])])
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -941,7 +949,7 @@ class MultiPlayerApp(QMainWindow):
                 chan_overlay.show_number()
                 
             for epg in getattr(self, 'epg_overlays', []):
-                epg.update_position()
+                QTimer.singleShot(100, epg.update_position)
                 
             self.update_window_state()
         else:
@@ -965,7 +973,7 @@ class MultiPlayerApp(QMainWindow):
                 self.epg_mode = 'hover'
                 
             if index < len(getattr(self, 'epg_overlays', [])):
-                self.epg_overlays[index].update_position()
+                QTimer.singleShot(100, self.epg_overlays[index].update_position)
                 self.epg_overlays[index].fade_in()
             
             if self.single_fs_index != -1 and self.single_fs_index != index:
@@ -989,12 +997,18 @@ class MultiPlayerApp(QMainWindow):
             QTimer.singleShot(delay, lambda: [o.update_position() for o in self.overlays])
             QTimer.singleShot(delay, lambda: [c.update_position() for c in getattr(self, 'channel_overlays', [])])
             QTimer.singleShot(delay, lambda: [m.update_position() for m in getattr(self, 'mute_overlays', [])])
+            QTimer.singleShot(delay, lambda: [e.update_position() for e in getattr(self, 'epg_overlays', [])])
 
     def on_epg_data_ready(self, data):
         self.epg_data = data
         for overlay in self.epg_overlays:
             if hasattr(overlay, 'channel_name'):
                 overlay.update_data(data.get(overlay.channel_name, {}))
+                
+        if getattr(self, 'epg_mode', 'locked') == 'locked':
+            for o in self.epg_overlays:
+                if o.target_widget.isVisible() and o.windowOpacity() == 0.0:
+                    o.fade_in()
                 
     def toggle_epg(self):
         if getattr(self, 'epg_mode', 'locked') == 'locked':
@@ -1005,6 +1019,12 @@ class MultiPlayerApp(QMainWindow):
             self.epg_mode = 'locked'
             for o in self.epg_overlays: 
                 o.fade_in()
+
+    def closeEvent(self, event):
+        if hasattr(self, 'epg_fetcher'):
+            self.epg_fetcher.running = False
+            self.epg_fetcher.wait(1000)
+        super().closeEvent(event)
 
     def load_channels_from_url(self):
         url = self.config['playlist_url']
@@ -1094,6 +1114,8 @@ class MultiPlayerApp(QMainWindow):
             self.overlays.append(overlay)
             
             epg_overlay = EPGOverlay(self, video_widget, name)
+            if hasattr(self, 'epg_data') and name in self.epg_data:
+                epg_overlay.update_data(self.epg_data[name])
             self.epg_overlays.append(epg_overlay)
             
             channel_number = self.stream_groups_numbers[self.current_group_index][i]
@@ -1147,6 +1169,9 @@ class MultiPlayerApp(QMainWindow):
         idx = self.load_queue.pop(0)
         if idx < len(self.players) and idx < len(self.channel_overlays):
             self.players[idx].play()
+            if getattr(self, 'epg_mode', 'locked') == 'locked' and idx < len(getattr(self, 'epg_overlays', [])):
+                if self.epg_overlays[idx].windowOpacity() == 0.0:
+                    QTimer.singleShot(200, self.epg_overlays[idx].fade_in)
 
     def set_vlc_video_widget(self, player, widget):
         if sys.platform.startswith('linux'):
@@ -1376,7 +1401,7 @@ class ControlsWindow(QWidget):
             print(f"Timezone check failed: {e}")
             x = (rect.width() - w) // 2
             
-        y = rect.height() - h - 120
+        y = rect.height() - h - 55
         self.move(x, y)
 
     def mousePressEvent(self, event):
@@ -1437,7 +1462,8 @@ class ControlsWindow(QWidget):
             ("All Subs OFF", self.master_app.subs_all_off),
             ("Screenshots", self.master_app.take_screenshot_all),
             ("Combined Screenshot", self.master_app.take_combined_screenshot),
-            ("Toggle EPG", self.master_app.toggle_epg)
+            ("Toggle EPG", self.master_app.toggle_epg),
+            ("Full Screen", self.master_app.toggle_app_fullscreen)
         ]
         
         for label, slot in global_actions:
@@ -1489,6 +1515,8 @@ class ControlsWindow(QWidget):
 
 if __name__ == "__main__":
     import sys
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     if sys.platform == 'win32':
         try:
             import ctypes
