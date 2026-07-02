@@ -480,12 +480,41 @@ class MultiPlayerApp(QMainWindow):
                     overlay.fade_in()
             else:
                 if overlay.windowOpacity() > 0 or overlay.isVisible():
-                    overlay.hide_instantly()
+                    overlay.fade_out()
+                    
+        # Fade controls window based on mouse activity
+        if hasattr(self, 'controls_window'):
+            controls = self.controls_window
+            
+            if getattr(self, 'single_fs_active', False):
+                # Completely hide the global controls in single fullscreen
+                if controls.opacity_effect.opacity() > 0 or controls.isVisible():
+                    controls.fade_out()
+            else:
+                mapped_controls = controls.mapFromGlobal(pos)
+                over_controls = controls.isVisible() and controls.rect().contains(mapped_controls)
+                
+                # Check if mouse is hovering over the main application window
+                mapped_main = self.mapFromGlobal(pos)
+                over_main_window = self.rect().contains(mapped_main)
+                
+                # Make the HUD disappear faster (0.5s) than the video controls
+                hud_is_idle = idle_time >= 0.5
+                
+                if (hud_is_idle and not over_controls) or not over_main_window:
+                    if controls.opacity_effect.opacity() > 0 or controls.isVisible():
+                        controls.fade_out()
+                elif over_main_window:
+                    controls.fade_in()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         for t in [10, 50, 200, 500]:
             QTimer.singleShot(t, lambda: [o.update_position() for o in self.overlays])
+            
+        if hasattr(self, 'controls_window'):
+            for t in [10, 50, 200, 500]:
+                QTimer.singleShot(t, self.controls_window.position_bottom_center)
             QTimer.singleShot(t, lambda: [c.update_position() for c in self.channel_overlays])
 
     def moveEvent(self, event):
@@ -537,25 +566,31 @@ class MultiPlayerApp(QMainWindow):
             for mute_overlay in getattr(self, 'mute_overlays', []):
                 mute_overlay.update_position()
                 
-        elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-            if getattr(self, '_ignore_next_release', False):
-                self._ignore_next_release = False
-                return super().eventFilter(obj, event)
-                
+        elif event.type() == QEvent.MouseButtonRelease:
             if obj in self.videos:
                 index = self.videos.index(obj)
                 
                 if getattr(self, 'single_fs_active', False):
-                    if event.pos().y() <= obj.height() * (2/3):
+                    # In single fullscreen, only the lower third toggles mute
+                    pos_y = event.position().y() if hasattr(event, 'position') else event.pos().y()
+                    if pos_y <= obj.height() * (2/3):
+                        return super().eventFilter(obj, event)
+
+                if event.button() == Qt.LeftButton:
+                    if getattr(self, '_ignore_next_release', False):
+                        self._ignore_next_release = False
                         return super().eventFilter(obj, event)
                         
-                if hasattr(self, '_single_click_timer') and self._single_click_timer.isActive():
-                    return super().eventFilter(obj, event)
+                    if hasattr(self, '_single_click_timer') and self._single_click_timer.isActive():
+                        return super().eventFilter(obj, event)
+                        
+                    self._single_click_timer = QTimer(self)
+                    self._single_click_timer.setSingleShot(True)
+                    self._single_click_timer.timeout.connect(lambda idx=index: self.handle_single_click(idx, is_left_click=True))
+                    self._single_click_timer.start(250)
                     
-                self._single_click_timer = QTimer(self)
-                self._single_click_timer.setSingleShot(True)
-                self._single_click_timer.timeout.connect(lambda idx=index: self.handle_single_click(idx))
-                self._single_click_timer.start(250)
+                elif event.button() == Qt.RightButton:
+                    self.handle_single_click(index, is_left_click=False)
                 
         elif event.type() == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
             self._ignore_next_release = True
@@ -567,10 +602,30 @@ class MultiPlayerApp(QMainWindow):
                 
         return super().eventFilter(obj, event)
 
-    def handle_single_click(self, index):
+    def handle_single_click(self, index, is_left_click=True):
         if index < len(self.overlays):
-            overlay = self.overlays[index]
-            overlay.toggle_mute()
+            unmuted_indices = [i for i, o in enumerate(self.overlays) if not o.player.audio_get_mute()]
+            
+            if is_left_click:
+                # If the user clicked the ONLY unmuted video, toggle it off (mute it)
+                if len(unmuted_indices) == 1 and unmuted_indices[0] == index:
+                    self.overlays[index].toggle_mute()
+                else:
+                    for i, overlay in enumerate(self.overlays):
+                        is_currently_muted = overlay.player.audio_get_mute()
+                        if i == index:
+                            if is_currently_muted:
+                                overlay.toggle_mute()
+                        else:
+                            if not is_currently_muted:
+                                overlay.toggle_mute()
+            else:
+                self.overlays[index].toggle_mute()
+                
+            # Remember the last unmuted video if there is exactly 1 unmuted
+            new_unmuted = [i for i, o in enumerate(self.overlays) if not o.player.audio_get_mute()]
+            if len(new_unmuted) == 1:
+                self.last_unmuted_index = new_unmuted[0]
 
     def update_window_state(self):
         app_fs = getattr(self, 'app_fs_active', False)
@@ -589,11 +644,26 @@ class MultiPlayerApp(QMainWindow):
         if not hasattr(self, 'fs_grid_direction_up'):
             self.fs_grid_direction_up = True
             
+        unmuted = [i for i, o in enumerate(self.overlays) if not o.player.audio_get_mute()]
+        has_single_unmuted = (len(unmuted) == 1)
+        
+        target_index = -1
+        if has_single_unmuted:
+            target_index = unmuted[0]
+        elif len(unmuted) == 0 and hasattr(self, 'last_unmuted_index'):
+            target_index = self.last_unmuted_index
+            
         if not app_fs and not single_fs:
-            # Max Window -> Full Screen Grid
-            self.app_fs_active = True
-            self.fs_grid_direction_up = True
-            self.update_window_state()
+            if target_index != -1:
+                # Shortcut directly to Single Fullscreen
+                self.toggle_single_fullscreen(target_index)
+                self.app_fs_active = True
+                self.fs_grid_direction_up = False
+            else:
+                # Max Window -> Full Screen Grid
+                self.app_fs_active = True
+                self.fs_grid_direction_up = True
+                self.update_window_state()
             
         elif single_fs:
             # Full Screen 1 Vid -> Full Screen Grid
@@ -606,10 +676,14 @@ class MultiPlayerApp(QMainWindow):
             # We are in Full Screen Grid. Check direction.
             if self.fs_grid_direction_up:
                 # Full Screen Grid -> Full Screen 1 Vid
-                target_index = getattr(self, 'locked_audio_index', -1)
-                if target_index == -1:
-                    target_index = getattr(self, 'last_single_fs_index', 0)
-                self.toggle_single_fullscreen(target_index)
+                if target_index != -1:
+                    final_target = target_index
+                else:
+                    final_target = getattr(self, 'locked_audio_index', -1)
+                    if final_target == -1:
+                        final_target = getattr(self, 'last_single_fs_index', 0)
+                        
+                self.toggle_single_fullscreen(final_target)
                 self.app_fs_active = True
                 self.fs_grid_direction_up = False
             else:
@@ -793,6 +867,9 @@ class MultiPlayerApp(QMainWindow):
         self.load_timer.stop()
         self._load_next_stream()
         self.load_timer.start()
+        
+        if hasattr(self, 'controls_window'):
+            self.controls_window.raise_()
 
     def _load_next_stream(self):
         if not hasattr(self, 'load_queue') or not self.load_queue:
@@ -957,39 +1034,107 @@ class MultiPlayerApp(QMainWindow):
         return True
 
 
-class ControlsWindow(QDialog):
+class ControlsWindow(QWidget):
     def __init__(self, master_app, all_groups_labels):
-        super().__init__(master_app)
-        self.setWindowTitle("Global Controls")
-        self.setMinimumSize(400, 50)
-        self.setWindowFlags(Qt.Window | Qt.WindowDoesNotAcceptFocus | Qt.WindowStaysOnTopHint)
+        super().__init__(master_app.central_widget)
         self.master_app = master_app
         self.all_groups_labels = all_groups_labels
         
-        # Because the main app universally forces everything to black, we explicitly 
-        # style this dialog to have standard dark-mode colors so it isn't an invisible void.
         self.setStyleSheet("""
-            QDialog {
-                background-color: #2b2b2b;
-                border: 1px solid #444;
+            #BgFrame {
+                background-color: rgba(30, 30, 30, 220);
+                border: 1px solid rgba(100, 100, 100, 100);
+                border-radius: 10px;
             }
             QPushButton {
-                background-color: #3b3b3b;
+                background-color: rgba(60, 60, 60, 200);
                 color: white;
                 border: 1px solid #555;
                 padding: 5px 15px;
-                border-radius: 3px;
+                border-radius: 5px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #505050;
+                background-color: rgba(90, 90, 90, 255);
                 border: 1px solid #00aa00;
+                color: #00FF00;
             }
         """)
         
-        self.layout = QGridLayout(self)
+        self.bg_frame = QFrame(self)
+        self.bg_frame.setObjectName("BgFrame")
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(self.bg_frame)
+        
+        self.layout = QGridLayout(self.bg_frame)
+        # Reduced padding so the borders aren't too large
+        self.layout.setContentsMargins(15, 10, 15, 10)
+        self.layout.setVerticalSpacing(10)
+        
         self.build_controls_ui()
-        self.position_middle_right()
+        QTimer.singleShot(500, self.position_bottom_center)
+        
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        
+        self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.anim.setDuration(250)
+        self.anim.finished.connect(self._on_anim_finished)
+        self.opacity_effect.setOpacity(0.0)
+        
+        self._drag_pos = None
+        self._dragged = False
+
+    def position_bottom_center(self):
+        self.adjustSize()
+        if not self.parent(): return
+        rect = self.parent().rect()
+        w, h = self.width(), self.height()
+        x = (rect.width() - w) // 2
+        y = rect.height() - h - 120
+        self.move(x, y)
+
+    def mousePressEvent(self, event):
+        global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+        self._drag_pos = global_pos - self.mapToGlobal(QPoint(0,0))
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None:
+            global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+            # Map global position back to parent coordinates for child widget moving
+            local_pos = self.parent().mapFromGlobal(global_pos - self._drag_pos)
+            self.move(local_pos)
+            event.accept()
+            
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()
+
+    def eventFilter(self, obj, event):
+        if isinstance(obj, QPushButton):
+            if event.type() == QEvent.MouseButtonPress:
+                global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+                self._drag_pos = global_pos - self.mapToGlobal(QPoint(0,0))
+                self._dragged = False
+                
+            elif event.type() == QEvent.MouseMove:
+                if self._drag_pos is not None:
+                    global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
+                    local_pos = self.parent().mapFromGlobal(global_pos - self._drag_pos)
+                    self.move(local_pos)
+                    self._dragged = True
+                    return True
+                    
+            elif event.type() == QEvent.MouseButtonRelease:
+                self._drag_pos = None
+                if getattr(self, '_dragged', False):
+                    # Cancel the click if we dragged
+                    self._dragged = False
+                    return True
+        return super().eventFilter(obj, event)
 
     def build_controls_ui(self):
         row = 0
@@ -1010,29 +1155,35 @@ class ControlsWindow(QDialog):
             btn = QPushButton(label)
             btn.clicked.connect(lambda checked, i=i: self.master_app.switch_group(i))
             self.layout.addWidget(btn, row, i)
+            
+        for btn in self.findChildren(QPushButton):
+            btn.installEventFilter(self)
 
-    def position_middle_right(self):
-        screens = QGuiApplication.screens()
-        screen = screens[0]
-        geometry = screen.geometry()
-        self.adjustSize()
-        w, h = self.width(), self.height()
-        x = geometry.x() + geometry.width() - w - 50
-        y = geometry.y() + (geometry.height() - h) // 2
-        self.move(x, y)
+    def fade_in(self):
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+        elif self.opacity_effect.opacity() == 1.0:
+            pass # Avoid calling raise_() continuously when fully visible, as it interrupts mouse dragging
+            
+        is_fading_in = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 1.0
+        if self.opacity_effect.opacity() < 1.0 and not is_fading_in:
+            self.anim.stop()
+            self.anim.setStartValue(self.opacity_effect.opacity())
+            self.anim.setEndValue(1.0)
+            self.anim.start()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        import sys
-        if sys.platform == 'win32':
-            try:
-                import ctypes
-                from ctypes.wintypes import BOOL
-                hwnd = int(self.winId())
-                DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(BOOL(True)), ctypes.sizeof(BOOL))
-            except Exception:
-                pass
+    def fade_out(self):
+        is_fading_out = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 0.0
+        if self.opacity_effect.opacity() > 0.0 and not is_fading_out:
+            self.anim.stop()
+            self.anim.setStartValue(self.opacity_effect.opacity())
+            self.anim.setEndValue(0.0)
+            self.anim.start()
+
+    def _on_anim_finished(self):
+        if self.opacity_effect.opacity() == 0.0:
+            self.hide()
 
 
 if __name__ == "__main__":
@@ -1074,9 +1225,10 @@ if __name__ == "__main__":
 
     all_groups_labels = list(config['stream_groups'].keys())
     controls = ControlsWindow(main_app, all_groups_labels)
+    main_app.controls_window = controls
     controls.show()
     
-    controls.finished.connect(q_app.quit)
-    controls.rejected.connect(q_app.quit)
+    # When the main window is closed, quit the application
+    q_app.setQuitOnLastWindowClosed(True)
 
     sys.exit(q_app.exec())
