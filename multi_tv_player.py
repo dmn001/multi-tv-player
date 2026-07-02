@@ -65,9 +65,14 @@ class OutlinedLabel(QLabel):
 class ChannelOverlay(QWidget):
     playing_signal = Signal()
 
-    def __init__(self, master_app, target_widget, channel_number):
+    def __init__(self, master_app, target_widget, channel_number, override_number=None):
         super().__init__(master_app)
         self.target_widget = target_widget
+        self.real_channel_number = str(channel_number)
+        self.override_number = str(override_number) if override_number else None
+        self.has_shown_override = False
+        
+        initial_text = self.override_number if self.override_number else self.real_channel_number
         self.playing_signal.connect(self.show_number)
         
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput | Qt.WindowStaysOnTopHint)
@@ -83,7 +88,7 @@ class ChannelOverlay(QWidget):
         self.clip_widget.setStyleSheet("background-color: transparent;")
         self.clip_widget.setGeometry(20, 20, 180, 100)
         
-        self.label = OutlinedLabel(str(channel_number), self.clip_widget)
+        self.label = OutlinedLabel(initial_text, self.clip_widget)
         self.label.setGeometry(0, 0, 180, 100)
         self.label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         
@@ -130,6 +135,13 @@ class ChannelOverlay(QWidget):
         self.move(top_left)
 
     def show_number(self):
+        if hasattr(self, 'real_channel_number') and self.real_channel_number:
+            if self.override_number and not self.has_shown_override:
+                self.label.setText(self.override_number)
+                self.has_shown_override = True
+            else:
+                self.label.setText(self.real_channel_number)
+                
         if not self.target_widget.isVisible() or self.target_widget.width() == 0:
             return
             
@@ -744,7 +756,16 @@ class MultiPlayerApp(QMainWindow):
             self.overlays.append(overlay)
             
             channel_number = self.stream_groups_numbers[self.current_group_index][i]
-            chan_overlay = ChannelOverlay(self, video_widget, channel_number)
+            
+            # User requested hardcoded display overrides for the first 6 channels
+            # Grid Top Row: 24, 109, 63
+            # Grid Second Row: 87, 18, 247
+            override_numbers = ["24", "109", "63", "87", "18", "247"]
+            initial_override = None
+            if i < len(override_numbers):
+                initial_override = override_numbers[i]
+                
+            chan_overlay = ChannelOverlay(self, video_widget, channel_number, initial_override)
             chan_overlay.attach_player(player)
             self.channel_overlays.append(chan_overlay)
             
