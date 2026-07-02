@@ -2,7 +2,7 @@
 
 A Python application to display multiple IPTV streams simultaneously using VLC, with a PySide6-based control panel and interactive video overlays for muting, subtitles, screenshots, and group switching.
 
-### Latest Updates
+### Features
 * **Single-Fullscreen:** Double-click any video to instantly expand it to full screen. Double-click again to return to the grid.
 * **Hover Controls:** Move your mouse over any video feed to reveal quick controls for mute, subtitles, fullscreen, and screenshots.
 * **Click to Mute:** Click anywhere on a video to quickly toggle its audio on or off.
