@@ -1092,7 +1092,23 @@ class ControlsWindow(QWidget):
         if not self.parent(): return
         rect = self.parent().rect()
         w, h = self.width(), self.height()
-        x = (rect.width() - w) // 2
+        
+        try:
+            from datetime import datetime
+            import pytz
+            uk_tz = pytz.timezone('Europe/London')
+            now = datetime.now(uk_tz)
+            if now.hour >= 19:
+                # 7pm or later: Center on the bottom-left tile
+                cols = getattr(self.master_app, 'grid_cols', 3)
+                col_width = rect.width() / cols
+                x = int((col_width - w) / 2)
+            else:
+                x = (rect.width() - w) // 2
+        except Exception as e:
+            print(f"Timezone check failed: {e}")
+            x = (rect.width() - w) // 2
+            
         y = rect.height() - h - 120
         self.move(x, y)
 
