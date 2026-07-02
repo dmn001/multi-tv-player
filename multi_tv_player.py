@@ -70,7 +70,7 @@ class ChannelOverlay(QWidget):
         self.target_widget = target_widget
         self.playing_signal.connect(self.show_number)
         
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet("background-color: transparent;")
         
@@ -174,11 +174,12 @@ class MuteOverlay(ChannelOverlay):
         self.show_number()
         
     def update_position(self):
-        if not self.target_widget.isVisible() or self.target_widget.width() == 0:
+        if not hasattr(self, 'target_widget') or not self.target_widget.isVisible() or self.target_widget.width() == 0:
             return
-        # Position exactly at the top left, same as the channel number
+            
         top_left = self.target_widget.mapToGlobal(QPoint(50, 0))
-        self.move(top_left)
+        x, y = top_left.x(), top_left.y()
+        self.move(x, y)
 
 
 class OverlayControls(QWidget):
@@ -189,7 +190,7 @@ class OverlayControls(QWidget):
         self.player = player
         self.index = index
         
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         
         self.setFixedSize(320, 50)
@@ -406,7 +407,11 @@ class MultiPlayerApp(QMainWindow):
                 
             video_rect = overlay.target_widget.rect()
             mapped_video_pos = overlay.target_widget.mapFromGlobal(pos)
-            over_video = video_rect.contains(mapped_video_pos)
+            
+            # Add a 50px margin of error to swallow any Qt geometry desyncs after DWM transitions
+            margin = 50
+            over_video = (-margin <= mapped_video_pos.x() <= video_rect.width() + margin) and \
+                         (-margin <= mapped_video_pos.y() <= video_rect.height() + margin)
             
             overlay_rect = overlay.rect()
             mapped_overlay_pos = overlay.mapFromGlobal(pos)
@@ -417,6 +422,18 @@ class MultiPlayerApp(QMainWindow):
             else:
                 if not overlay.hide_timer.isActive() and overlay.windowOpacity() > 0:
                     overlay.hide_timer.start()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        for t in [10, 50, 200, 500]:
+            QTimer.singleShot(t, lambda: [o.update_position() for o in self.overlays])
+            QTimer.singleShot(t, lambda: [c.update_position() for c in self.channel_overlays])
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        for t in [10, 50, 200, 500]:
+            QTimer.singleShot(t, lambda: [o.update_position() for o in self.overlays])
+            QTimer.singleShot(t, lambda: [c.update_position() for c in self.channel_overlays])
 
     def showEvent(self, event):
         super().showEvent(event)
