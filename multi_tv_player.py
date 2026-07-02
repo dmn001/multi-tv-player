@@ -482,6 +482,20 @@ class MultiPlayerApp(QMainWindow):
                 if overlay.windowOpacity() > 0 or overlay.isVisible():
                     overlay.fade_out()
                     
+        # Check if mouse is hovering over the main application window
+        mapped_main = self.mapFromGlobal(pos)
+        over_main_window = self.rect().contains(mapped_main)
+                    
+        # Cursor hiding logic
+        if mouse_is_idle and over_main_window:
+            if not getattr(self, '_cursor_hidden', False):
+                QApplication.setOverrideCursor(Qt.BlankCursor)
+                self._cursor_hidden = True
+        else:
+            if getattr(self, '_cursor_hidden', False):
+                QApplication.restoreOverrideCursor()
+                self._cursor_hidden = False
+                    
         # Fade controls window based on mouse activity
         if hasattr(self, 'controls_window'):
             controls = self.controls_window
