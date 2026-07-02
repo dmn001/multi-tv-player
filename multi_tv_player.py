@@ -385,7 +385,7 @@ class EPGOverlay(QWidget):
         self.setStyleSheet("""
             QWidget {
                 color: white;
-                background-color: rgba(0, 0, 0, 180);
+                background-color: black;
                 border-radius: 8px;
             }
             QLabel {
@@ -428,17 +428,39 @@ class EPGOverlay(QWidget):
     def windowOpacity(self):
         return self.opacity_effect.opacity()
         
+    def update_fonts(self, is_single_fs):
+        if is_single_fs:
+            self.setFixedWidth(600)
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 18px;")
+            self.desc_label.setStyleSheet("font-size: 16px; color: #dddddd;")
+            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 16px; color: #88ff88;")
+            self.next_label.setStyleSheet("font-size: 16px; color: #aaaaaa;")
+        else:
+            self.setFixedWidth(380)
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
+            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 12px; color: #88ff88;")
+            self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+
     def update_position(self):
         if not hasattr(self, 'target_widget') or not self.target_widget.isVisible() or self.target_widget.width() == 0:
             return
+            
+        is_fs = getattr(self.master_app, 'single_fs_active', False)
+        self.update_fonts(is_fs)
             
         rect = self.target_widget.geometry()
         top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
         
         self.adjustSize()
         x = top_left.x() + (rect.width() - self.width()) // 2
-        y = top_left.y() + 10
+        y = top_left.y() + (30 if is_fs else 10)
         self.move(x, y)
+        
+    def hide_instantly(self):
+        self.anim.stop()
+        self.opacity_effect.setOpacity(0.0)
+        self.hide()
         
     def update_data(self, data):
         if not data:
@@ -450,7 +472,6 @@ class EPGOverlay(QWidget):
             
         self.now_label.setText(f"NOW: {data.get('now_title', '')} ({data.get('now_time', '')})")
         desc = data.get('desc', '')
-        if len(desc) > 100: desc = desc[:97] + '...'
         self.desc_label.setText(desc)
         self.progress_bar.setText(data.get('progress', ''))
         
@@ -582,6 +603,7 @@ class MultiPlayerApp(QMainWindow):
         self.mute_overlays = []
         
         self.show_epg_overlays = True
+        self.epg_mode = 'locked'
         self.epg_data = {}
         self.epg_overlays = []
         self.epg_fetcher = EPGFetcher()
@@ -649,7 +671,9 @@ class MultiPlayerApp(QMainWindow):
         idle_time = time.time() - getattr(self, 'last_mouse_move_time', time.time())
         mouse_is_idle = idle_time >= 1.6
 
-        all_overlays = self.overlays + getattr(self, 'epg_overlays', [])
+        all_overlays = list(self.overlays)
+        if getattr(self, 'epg_mode', 'locked') == 'hover':
+            all_overlays.extend(getattr(self, 'epg_overlays', []))
         for overlay in all_overlays:
             if not overlay.target_widget.isVisible():
                 continue
@@ -915,6 +939,9 @@ class MultiPlayerApp(QMainWindow):
             for chan_overlay in getattr(self, 'channel_overlays', []):
                 chan_overlay.show_number()
                 
+            for epg in getattr(self, 'epg_overlays', []):
+                epg.update_position()
+                
             self.update_window_state()
         else:
             # Go single fullscreen
@@ -922,6 +949,8 @@ class MultiPlayerApp(QMainWindow):
                 if i != index:
                     v.hide()
                     self.overlays[i].hide_instantly()
+                    if i < len(getattr(self, 'epg_overlays', [])):
+                        self.epg_overlays[i].hide_instantly()
                     if i < len(getattr(self, 'channel_overlays', [])):
                         self.channel_overlays[i].hide()
                     if i < len(getattr(self, 'mute_overlays', [])):
@@ -929,6 +958,14 @@ class MultiPlayerApp(QMainWindow):
                         self.mute_overlays[i].hide_timer.stop()
             self.videos[index].show()
             self.single_fs_active = True
+            
+            # Switch EPG to hover mode instantly
+            if getattr(self, 'epg_mode', 'locked') == 'locked':
+                self.epg_mode = 'hover'
+                
+            if index < len(getattr(self, 'epg_overlays', [])):
+                self.epg_overlays[index].update_position()
+                self.epg_overlays[index].fade_in()
             
             if self.single_fs_index != -1 and self.single_fs_index != index:
                 self.overlays[self.single_fs_index].fs_btn.setText("🔲")
@@ -959,11 +996,14 @@ class MultiPlayerApp(QMainWindow):
                 overlay.update_data(data.get(overlay.channel_name, {}))
                 
     def toggle_epg(self):
-        self.show_epg_overlays = not getattr(self, 'show_epg_overlays', True)
-        if not self.show_epg_overlays:
-            for o in self.epg_overlays: o.fade_out()
+        if getattr(self, 'epg_mode', 'locked') == 'locked':
+            self.epg_mode = 'hover'
+            for o in self.epg_overlays: 
+                o.hide_instantly()
         else:
-            for o in self.epg_overlays: o.fade_in()
+            self.epg_mode = 'locked'
+            for o in self.epg_overlays: 
+                o.fade_in()
 
     def load_channels_from_url(self):
         url = self.config['playlist_url']
