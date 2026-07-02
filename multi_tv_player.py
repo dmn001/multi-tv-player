@@ -372,7 +372,7 @@ class OverlayControls(QWidget):
 
 
 
-class EPGOverlay(QWidget):
+class EPGOverlay(QFrame):
     def __init__(self, master_app, target_widget, channel_name):
         super().__init__(master_app)
         self.master_app = master_app
@@ -384,7 +384,7 @@ class EPGOverlay(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         
         self.setStyleSheet("""
-            QWidget {
+            EPGOverlay {
                 color: white;
                 background-color: black;
                 border-radius: 8px;
