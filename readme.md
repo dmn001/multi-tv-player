@@ -6,6 +6,7 @@ A Python application to display multiple IPTV streams simultaneously using VLC, 
 * **Single-Fullscreen:** Double-click any video to instantly expand it to full screen. Double-click again to return to the grid.
 * **Hover Controls:** Move your mouse over any video feed to reveal quick controls for mute, subtitles, fullscreen, and screenshots.
 * **Click to Mute:** Click anywhere on a video to quickly toggle its audio on or off.
+* **Numpad Quick-Switch:** Press keys `1`–`9` to instantly isolate any channel (expanding it to full screen and soloing the audio).
 
 ⚠️ **Note:** This player currently only works on **Windows** (uses `widget.winId()` with `set_hwnd`, and audio backend is Windows-specific).
 
@@ -56,7 +57,8 @@ pip install -r requirements.txt
    - **Hover Controls**: Move your mouse over any video to reveal individual controls (Mute, Subtitles, Screenshot, Fullscreen).
    - **Single Click**: Click anywhere on a video stream to instantly toggle mute/unmute.
    - **Double Click**: Double-click a video to isolate it (hides other streams and fills the window). Double-click again to return to the grid.
-   - **F11**: Toggles True Borderless Fullscreen for the application window.
+   - **Number Keys (1-9)**: Press any number to instantly jump to that video in single-fullscreen and solo its audio. Press the same number again to toggle back.
+   - **F / F11**: Toggles True Borderless Fullscreen for the application window.
 
 ---
 
@@ -69,9 +71,13 @@ A separate window (`ControlsWindow`) provides global system toggles:
 
 ### Keyboard Shortcuts
 
-- `M` – Toggle mute/unmute all players  
+- `M` – Toggle mute/unmute all players
+- `Up Arrow` – Unmute all players
+- `Down Arrow` – Mute all players
 - `S` – Toggle subtitles on/off all players  
-- `1`–`9` – Mute all except specified player  
+- `1`–`9` – Instantly isolate the specified player (fullscreen + solo audio). Press the same number again to return to the grid.
+- `F` / `F11` – Toggle fullscreen
+- `*` – Instantly close the application
 
 Screenshots are saved to:
 ```
