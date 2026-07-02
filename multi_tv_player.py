@@ -248,7 +248,12 @@ class OverlayControls(QWidget):
 
     def toggle_mute(self):
         current_mute = self.player.audio_get_mute()
-        self.set_mute_ui(not current_mute)
+        is_muted = not current_mute
+        self.set_mute_ui(is_muted)
+        
+        text = "MUTE" if is_muted else "VOL"
+        if hasattr(self.master_app, 'mute_overlays') and self.index < len(self.master_app.mute_overlays):
+            self.master_app.mute_overlays[self.index].show_icon(text)
 
     def set_mute_ui(self, muted):
         self.player.audio_set_mute(muted)
@@ -413,6 +418,16 @@ class MultiPlayerApp(QMainWindow):
 
     def check_hover(self):
         pos = QCursor.pos()
+        
+        # Track idle time
+        import time
+        if not hasattr(self, 'last_mouse_pos') or self.last_mouse_pos != pos:
+            self.last_mouse_pos = pos
+            self.last_mouse_move_time = time.time()
+            
+        idle_time = time.time() - getattr(self, 'last_mouse_move_time', time.time())
+        mouse_is_idle = idle_time >= 1.6
+
         for overlay in self.overlays:
             if not overlay.target_widget.isVisible():
                 continue
@@ -430,10 +445,14 @@ class MultiPlayerApp(QMainWindow):
             over_overlay = overlay.isVisible() and overlay_rect.contains(mapped_overlay_pos)
             
             if over_video or over_overlay:
-                overlay.fade_in()
+                if mouse_is_idle and not over_overlay:
+                    if overlay.windowOpacity() > 0 or overlay.isVisible():
+                        overlay.fade_out()
+                else:
+                    overlay.fade_in()
             else:
-                if not overlay.hide_timer.isActive() and overlay.windowOpacity() > 0:
-                    overlay.hide_timer.start()
+                if overlay.windowOpacity() > 0 or overlay.isVisible():
+                    overlay.hide_instantly()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -515,11 +534,9 @@ class MultiPlayerApp(QMainWindow):
         return super().eventFilter(obj, event)
 
     def handle_single_click(self, index):
-        overlay = self.overlays[index]
-        overlay.toggle_mute()
-        is_muted = self.players[index].audio_get_mute()
-        text = "MUTE" if is_muted else "VOL"
-        self.mute_overlays[index].show_icon(text)
+        if index < len(self.overlays):
+            overlay = self.overlays[index]
+            overlay.toggle_mute()
 
     def update_window_state(self):
         app_fs = getattr(self, 'app_fs_active', False)
