@@ -654,16 +654,10 @@ class MultiPlayerApp(QMainWindow):
             target_index = self.last_unmuted_index
             
         if not app_fs and not single_fs:
-            if target_index != -1:
-                # Shortcut directly to Single Fullscreen
-                self.toggle_single_fullscreen(target_index)
-                self.app_fs_active = True
-                self.fs_grid_direction_up = False
-            else:
-                # Max Window -> Full Screen Grid
-                self.app_fs_active = True
-                self.fs_grid_direction_up = True
-                self.update_window_state()
+            # Max Window -> Full Screen Grid
+            self.app_fs_active = True
+            self.fs_grid_direction_up = True
+            self.update_window_state()
             
         elif single_fs:
             # Full Screen 1 Vid -> Full Screen Grid
@@ -689,6 +683,7 @@ class MultiPlayerApp(QMainWindow):
             else:
                 # Full Screen Grid -> Max Window
                 self.app_fs_active = False
+                self.fs_grid_direction_up = True
                 self.update_window_state()
 
     def handle_escape(self):
