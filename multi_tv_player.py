@@ -619,8 +619,12 @@ class MultiPlayerApp(QMainWindow):
                         else:
                             if not is_currently_muted:
                                 overlay.toggle_mute()
+                    self.fs_grid_direction_up = True
             else:
                 self.overlays[index].toggle_mute()
+                if not self.overlays[index].player.audio_get_mute():
+                    # If we just unmuted it, set direction up
+                    self.fs_grid_direction_up = True
                 
             # Remember the last unmuted video if there is exactly 1 unmuted
             new_unmuted = [i for i, o in enumerate(self.overlays) if not o.player.audio_get_mute()]
