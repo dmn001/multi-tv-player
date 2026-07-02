@@ -1,6 +1,6 @@
 # multi-tv-player
 
-A Python application to display multiple IPTV streams simultaneously using VLC, with a PySide6-based control panel for muting, subtitles, screenshots, and group switching.
+A Python application to display multiple IPTV streams simultaneously using VLC, with a PySide6-based control panel and interactive video overlays for muting, subtitles, screenshots, and group switching.
 
 ⚠️ **Note:** This player currently only works on **Windows** (uses `widget.winId()` with `set_hwnd`, and audio backend is Windows-specific).
 
@@ -47,17 +47,18 @@ pip install -r requirements.txt
    ```
    Grid layout adjusts to 1×1, 2×2, or 3×3 based on group size.
 
-4. Keyboard shortcut **F11** toggles fullscreen/normal window.
+4. Interactive Video Features:
+   - **Hover Controls**: Move your mouse over any video to reveal individual controls (Mute, Subtitles, Screenshot, Fullscreen).
+   - **Single Click**: Click anywhere on a video stream to instantly toggle mute/unmute.
+   - **Double Click**: Double-click a video to isolate it (hides other streams and fills the window). Double-click again to return to the grid.
+   - **F11**: Toggles True Borderless Fullscreen for the application window.
 
 ---
 
-## Control Panel
+## Global Control Panel
 
-A separate window (`ControlsWindow`) provides:
+A separate window (`ControlsWindow`) provides global system toggles:
 
-- Individual Mute/Unmute per stream  
-- Subtitle ON/OFF per stream  
-- Screenshot buttons (per stream or combined grid)  
 - Global controls: Unmute All, Mute All, All Subs ON/OFF, Screenshots, Combined Screenshot  
 - Buttons to switch between predefined stream groups
 
@@ -93,10 +94,6 @@ playlist_url: "http://192.168.1.73:9981/playlist" # Your M3U playlist URL
 stream_groups: # Define groups of channel numbers for quick switching
   3x3: ['101', '102', '103', '104', '105', '204', '203', '107', '106']
   2x2: ['101', '102', '103', '104']
-  5 HD: ['105']
-  34CBBC: ['107', '106', '204', '203']
-  BBC One HD: ['101']
-  ITV1 HD: ['103']
   BBC News SD: ['231']
 ```
 
