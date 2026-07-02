@@ -1133,15 +1133,22 @@ class ControlsWindow(QWidget):
             if event.type() == QEvent.MouseButtonPress:
                 global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
                 self._drag_pos = global_pos - self.mapToGlobal(QPoint(0,0))
+                self._press_global_pos = global_pos
                 self._dragged = False
                 
             elif event.type() == QEvent.MouseMove:
                 if self._drag_pos is not None:
                     global_pos = event.globalPosition().toPoint() if hasattr(event, 'globalPosition') else event.globalPos()
-                    local_pos = self.parent().mapFromGlobal(global_pos - self._drag_pos)
-                    self.move(local_pos)
-                    self._dragged = True
-                    return True
+                    
+                    if not self._dragged and hasattr(self, '_press_global_pos'):
+                        diff = global_pos - self._press_global_pos
+                        if diff.manhattanLength() > 5:
+                            self._dragged = True
+                            
+                    if self._dragged:
+                        local_pos = self.parent().mapFromGlobal(global_pos - self._drag_pos)
+                        self.move(local_pos)
+                        return True
                     
             elif event.type() == QEvent.MouseButtonRelease:
                 self._drag_pos = None
