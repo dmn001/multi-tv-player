@@ -205,10 +205,8 @@ class OverlayControls(QWidget):
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         
-        self.setFixedSize(320, 50)
-        
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(10, 0, 10, 0)
         
         btn_style = """
             QPushButton {
@@ -327,6 +325,7 @@ class OverlayControls(QWidget):
         if not self.target_widget.isVisible() or self.target_widget.width() == 0:
             return
         
+        self.adjustSize()
         rect = self.target_widget.geometry()
         top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
         
@@ -370,7 +369,89 @@ class OverlayControls(QWidget):
         self.toggle_fullscreen()
         super().mouseDoubleClickEvent(event)
 
+from PySide6.QtGui import QPainter, QColor, QFont, QPen
+from PySide6.QtCore import QRect, Qt
 
+class SmoothProgressBar(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(24)
+        self.start_ts = None
+        self.stop_ts = None
+        self.start_str = ""
+        self.stop_str = ""
+        self.is_fs = False
+        self.update_timer = QTimer(self)
+        self.update_timer.setInterval(1000)
+        self.update_timer.timeout.connect(self.update)
+        self.update_timer.start()
+
+    def set_fullscreen(self, is_fs):
+        self.is_fs = is_fs
+        self.setFixedHeight(34 if is_fs else 24)
+        self.update()
+
+    def update_data(self, start_ts, stop_ts, start_str, stop_str):
+        self.start_ts = start_ts
+        self.stop_ts = stop_ts
+        self.start_str = start_str
+        self.stop_str = stop_str
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        rect = self.rect()
+        bg_color = QColor(40, 40, 40, 255)
+        painter.setBrush(bg_color)
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect, rect.height()/2, rect.height()/2)
+        
+        if self.start_ts is None or self.stop_ts is None:
+            painter.end()
+            return
+            
+        import time
+        now = int(time.time())
+        total = self.stop_ts - self.start_ts
+        elapsed = now - self.start_ts
+        
+        if total <= 0:
+            painter.end()
+            return
+            
+        progress_pct = max(0.0, min(1.0, elapsed / total))
+        
+        hue = max(0, min(120, int(120 - (progress_pct * 100 * 1.2))))
+        fill_color = QColor.fromHsl(hue, int(255 * 0.9), int(255 * 0.45))
+        painter.setBrush(fill_color)
+        fill_rect = QRect(rect.x(), rect.y(), int(rect.width() * progress_pct), rect.height())
+        painter.setClipRect(fill_rect)
+        painter.drawRoundedRect(rect, rect.height()/2, rect.height()/2)
+        painter.setClipping(False)
+        
+        painter.setPen(QPen(Qt.white))
+        font = painter.font()
+        font.setPointSize(14 if self.is_fs else 10)
+        font.setBold(True)
+        painter.setFont(font)
+        
+        left_text = f"{self.start_str} - {self.stop_str}"
+        margin = int(rect.height() / 2) + 2
+        painter.drawText(rect.adjusted(margin, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, left_text)
+        
+        duration_mins = total // 60
+        pct_str = f"{progress_pct*100:.1f}%"
+        center_text = f"{duration_mins}m ({pct_str})"
+        painter.drawText(rect, Qt.AlignCenter, center_text)
+        
+        remaining = max(0, self.stop_ts - now)
+        rem_mins = remaining // 60
+        rem_secs = remaining % 60
+        right_text = f"{rem_mins:02d}:{rem_secs:02d}"
+        painter.drawText(rect.adjusted(0, 0, -margin, 0), Qt.AlignRight | Qt.AlignVCenter, right_text)
+        painter.end()
 
 class EPGOverlay(QWidget):
     def __init__(self, master_app, target_widget, channel_name):
@@ -388,19 +469,23 @@ class EPGOverlay(QWidget):
         self.bg_frame = QFrame(self)
         self.bg_frame.setStyleSheet("""
             QFrame {
-                background-color: black;
+                background-color: rgba(0, 0, 0, 180);
                 border-radius: 8px;
             }
             QLabel {
                 color: white;
                 background: transparent;
+                margin: 0px;
+                padding: 0px;
             }
         """)
         main_layout.addWidget(self.bg_frame)
         
         self.layout = QVBoxLayout(self.bg_frame)
-        self.layout.setContentsMargins(10, 5, 10, 5)
-        self.layout.setSpacing(2)
+        self.layout.setContentsMargins(10, 0, 10, 5)
+        self.layout.setSpacing(0)
+        
+        self.progress_bar = SmoothProgressBar()
         
         self.now_label = QLabel("NOW: Fetching EPG...")
         self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
@@ -409,15 +494,12 @@ class EPGOverlay(QWidget):
         self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
         self.desc_label.setWordWrap(True)
         
-        self.progress_bar = QLabel("")
-        self.progress_bar.setStyleSheet("font-family: monospace; font-size: 12px; color: #88ff88;")
-        
         self.next_label = QLabel("")
         self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
         
+        self.layout.addWidget(self.progress_bar)
         self.layout.addWidget(self.now_label)
         self.layout.addWidget(self.desc_label)
-        self.layout.addWidget(self.progress_bar)
         self.layout.addWidget(self.next_label)
         
         self.setFixedWidth(380)
@@ -441,14 +523,14 @@ class EPGOverlay(QWidget):
             self.setMaximumWidth(900)
             self.now_label.setStyleSheet("font-weight: bold; font-size: 24px;")
             self.desc_label.setStyleSheet("font-size: 18px; color: #dddddd;")
-            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 18px; color: #88ff88;")
+            self.progress_bar.set_fullscreen(True)
             self.next_label.setStyleSheet("font-size: 18px; color: #aaaaaa;")
         else:
             self.setMinimumWidth(380)
             self.setMaximumWidth(600)
             self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
             self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
-            self.progress_bar.setStyleSheet("font-family: monospace; font-size: 12px; color: #88ff88;")
+            self.progress_bar.set_fullscreen(False)
             self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
 
     def update_position(self):
@@ -463,7 +545,7 @@ class EPGOverlay(QWidget):
         
         self.adjustSize()
         x = top_left.x() + (rect.width() - self.width()) // 2
-        y = top_left.y() + (30 if is_fs else 10)
+        y = top_left.y()
         self.move(x, y)
         
     def hide_instantly(self):
@@ -473,16 +555,22 @@ class EPGOverlay(QWidget):
         
     def update_data(self, data):
         if not data:
-            self.now_label.setText("NOW: No EPG Data")
+            self.now_label.setText("No EPG Data")
             self.desc_label.setText("")
-            self.progress_bar.setText("")
+            self.progress_bar.update_data(None, None, "", "")
             self.next_label.setText("")
             return
             
-        self.now_label.setText(f"NOW: {data.get('now_title', '')} ({data.get('now_time', '')})")
+        self.now_label.setText(f"{data.get('now_title', '')}")
         desc = data.get('desc', '')
         self.desc_label.setText(desc)
-        self.progress_bar.setText(data.get('progress', ''))
+        
+        time_str = data.get('now_time', ' - ')
+        parts = time_str.split(' - ')
+        start_str = parts[0].strip() if len(parts) > 0 else ""
+        stop_str = parts[1].strip() if len(parts) > 1 else ""
+        
+        self.progress_bar.update_data(data.get('start_ts'), data.get('stop_ts'), start_str, stop_str)
         
         if data.get('next_title'):
             self.next_label.setText(f"NEXT: {data.get('next_title')} ({data.get('next_time', '')})")
@@ -571,6 +659,8 @@ class EPGFetcher(QThread):
                                 parsed_epg[cname]['now_title'] = now_event.get('title', 'No Title')
                                 parsed_epg[cname]['now_time'] = f"{self.format_time(now_event['start'])} - {self.format_time(now_event['stop'])}"
                                 parsed_epg[cname]['desc'] = now_event.get('subtitle', '') or now_event.get('description', '')
+                                parsed_epg[cname]['start_ts'] = now_event['start']
+                                parsed_epg[cname]['stop_ts'] = now_event['stop']
                                 parsed_epg[cname]['progress'] = self.progress_bar(now_event['start'], now_event['stop'], now)
                             if next_event:
                                 parsed_epg[cname]['next_title'] = next_event.get('title', 'No Title')
@@ -580,7 +670,7 @@ class EPGFetcher(QThread):
             except Exception as e:
                 print(f"EPG Fetch error: {e}")
                 
-            for _ in range(60):
+            for _ in range(1):
                 if not self.running: break
                 time.sleep(1)
 
