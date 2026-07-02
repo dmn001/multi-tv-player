@@ -381,6 +381,7 @@ class EPGOverlay(QWidget):
         
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         
         self.setStyleSheet("""
             QWidget {
