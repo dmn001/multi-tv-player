@@ -331,7 +331,7 @@ class OverlayControls(QWidget):
         top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
         
         x = top_left.x() + (rect.width() - self.width()) // 2
-        y = top_left.y() + rect.height() - self.height() - 20
+        y = top_left.y() + rect.height() - self.height() - 5
         self.move(x, y)
 
     def fade_in(self):
@@ -371,6 +371,192 @@ class OverlayControls(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+
+class EPGOverlay(QWidget):
+    def __init__(self, master_app, target_widget, channel_name):
+        super().__init__(master_app)
+        self.master_app = master_app
+        self.target_widget = target_widget
+        self.channel_name = channel_name
+        
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        
+        self.setStyleSheet("""
+            QWidget {
+                color: white;
+                background-color: rgba(0, 0, 0, 180);
+                border-radius: 8px;
+            }
+            QLabel {
+                background: transparent;
+            }
+        """)
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(10, 5, 10, 5)
+        self.layout.setSpacing(2)
+        
+        self.now_label = QLabel("NOW: Fetching EPG...")
+        self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        
+        self.desc_label = QLabel("")
+        self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
+        self.desc_label.setWordWrap(True)
+        
+        self.progress_bar = QLabel("")
+        self.progress_bar.setStyleSheet("font-family: monospace; font-size: 12px; color: #88ff88;")
+        
+        self.next_label = QLabel("")
+        self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+        
+        self.layout.addWidget(self.now_label)
+        self.layout.addWidget(self.desc_label)
+        self.layout.addWidget(self.progress_bar)
+        self.layout.addWidget(self.next_label)
+        
+        self.setFixedWidth(380)
+        self.hide()
+        
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self.opacity_effect.setOpacity(0.0)
+        
+        self.anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.anim.setDuration(300)
+
+    def windowOpacity(self):
+        return self.opacity_effect.opacity()
+        
+    def update_position(self):
+        if not hasattr(self, 'target_widget') or not self.target_widget.isVisible() or self.target_widget.width() == 0:
+            return
+            
+        rect = self.target_widget.geometry()
+        top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
+        
+        self.adjustSize()
+        x = top_left.x() + (rect.width() - self.width()) // 2
+        y = top_left.y() + 10
+        self.move(x, y)
+        
+    def update_data(self, data):
+        if not data:
+            self.now_label.setText("NOW: No EPG Data")
+            self.desc_label.setText("")
+            self.progress_bar.setText("")
+            self.next_label.setText("")
+            return
+            
+        self.now_label.setText(f"NOW: {data.get('now_title', '')} ({data.get('now_time', '')})")
+        desc = data.get('desc', '')
+        if len(desc) > 100: desc = desc[:97] + '...'
+        self.desc_label.setText(desc)
+        self.progress_bar.setText(data.get('progress', ''))
+        
+        if data.get('next_title'):
+            self.next_label.setText(f"NEXT: {data.get('next_title')} ({data.get('next_time', '')})")
+        else:
+            self.next_label.setText("")
+        self.update_position()
+        
+    def fade_in(self):
+        if not getattr(self.master_app, 'show_epg_overlays', True):
+            return
+        if getattr(self.master_app, 'single_fs_active', False):
+            return
+            
+        self.update_position()
+        self.show()
+        self.raise_()
+        
+        is_fading_in = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 1.0
+        if self.windowOpacity() < 1.0 and not is_fading_in:
+            self.anim.stop()
+            self.anim.setStartValue(self.windowOpacity())
+            self.anim.setEndValue(1.0)
+            self.anim.start()
+
+    def fade_out(self):
+        is_fading_out = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 0.0
+        if self.windowOpacity() > 0.0 and not is_fading_out:
+            self.anim.stop()
+            self.anim.setStartValue(self.windowOpacity())
+            self.anim.setEndValue(0.0)
+            self.anim.start()
+
+from PySide6.QtCore import QThread, Signal
+from datetime import datetime
+
+class EPGFetcher(QThread):
+    data_ready = Signal(dict)
+    
+    def __init__(self, tvh_url="http://192.168.1.73:9981"):
+        super().__init__()
+        self.tvh_url = tvh_url
+        self.running = True
+        
+    def format_time(self, ts):
+        return datetime.fromtimestamp(ts).strftime('%H:%M')
+        
+    def progress_bar(self, start_ts, stop_ts, now_ts, length=25):
+        total = stop_ts - start_ts
+        elapsed = now_ts - start_ts
+        if total <= 0 or elapsed < 0: return '[No progress]'
+        progress = int((elapsed / total) * length)
+        progress = min(max(progress, 0), length - 1)
+        return '[' + '=' * progress + '>' + '.' * (length - progress - 1) + ']'
+        
+    def run(self):
+        import time, requests
+        while self.running:
+            try:
+                url = f"{self.tvh_url}/api/epg/events/grid"
+                resp = requests.get(url, params={"start": 0, "limit": 1000}, timeout=5)
+                if resp.status_code == 200:
+                    epg_data = resp.json().get('entries', [])
+                    now = int(time.time())
+                    
+                    channel_data = {}
+                    for event in epg_data:
+                        cname = event.get('channelName', '')
+                        if cname not in channel_data:
+                            channel_data[cname] = []
+                        channel_data[cname].append(event)
+                        
+                    parsed_epg = {}
+                    for cname, events in channel_data.items():
+                        events.sort(key=lambda e: e['start'])
+                        now_event, next_event = None, None
+                        for i, e in enumerate(events):
+                            if e['start'] <= now < e['stop']:
+                                now_event = e
+                                if i + 1 < len(events):
+                                    next_event = events[i + 1]
+                                break
+                            elif e['start'] > now and next_event is None:
+                                next_event = e
+                                
+                        if now_event or next_event:
+                            parsed_epg[cname] = {}
+                            if now_event:
+                                parsed_epg[cname]['now_title'] = now_event.get('title', 'No Title')
+                                parsed_epg[cname]['now_time'] = f"{self.format_time(now_event['start'])} - {self.format_time(now_event['stop'])}"
+                                parsed_epg[cname]['desc'] = now_event.get('subtitle', '') or now_event.get('description', '')
+                                parsed_epg[cname]['progress'] = self.progress_bar(now_event['start'], now_event['stop'], now)
+                            if next_event:
+                                parsed_epg[cname]['next_title'] = next_event.get('title', 'No Title')
+                                parsed_epg[cname]['next_time'] = f"{self.format_time(next_event['start'])} - {self.format_time(next_event['stop'])}"
+                                
+                    self.data_ready.emit(parsed_epg)
+            except Exception as e:
+                print(f"EPG Fetch error: {e}")
+                
+            for _ in range(60):
+                if not self.running: break
+                time.sleep(1)
+
+
 class MultiPlayerApp(QMainWindow):
     def __init__(self, config):
         super().__init__()
@@ -394,6 +580,13 @@ class MultiPlayerApp(QMainWindow):
         self.overlays = []
         self.channel_overlays = []
         self.mute_overlays = []
+        
+        self.show_epg_overlays = True
+        self.epg_data = {}
+        self.epg_overlays = []
+        self.epg_fetcher = EPGFetcher()
+        self.epg_fetcher.data_ready.connect(self.on_epg_data_ready)
+        self.epg_fetcher.start()
         self.grid_rows = 2
         self.grid_cols = 2
         
@@ -456,7 +649,8 @@ class MultiPlayerApp(QMainWindow):
         idle_time = time.time() - getattr(self, 'last_mouse_move_time', time.time())
         mouse_is_idle = idle_time >= 1.6
 
-        for overlay in self.overlays:
+        all_overlays = self.overlays + getattr(self, 'epg_overlays', [])
+        for overlay in all_overlays:
             if not overlay.target_widget.isVisible():
                 continue
                 
@@ -758,6 +952,19 @@ class MultiPlayerApp(QMainWindow):
             QTimer.singleShot(delay, lambda: [c.update_position() for c in getattr(self, 'channel_overlays', [])])
             QTimer.singleShot(delay, lambda: [m.update_position() for m in getattr(self, 'mute_overlays', [])])
 
+    def on_epg_data_ready(self, data):
+        self.epg_data = data
+        for overlay in self.epg_overlays:
+            if hasattr(overlay, 'channel_name'):
+                overlay.update_data(data.get(overlay.channel_name, {}))
+                
+    def toggle_epg(self):
+        self.show_epg_overlays = not getattr(self, 'show_epg_overlays', True)
+        if not self.show_epg_overlays:
+            for o in self.epg_overlays: o.fade_out()
+        else:
+            for o in self.epg_overlays: o.fade_in()
+
     def load_channels_from_url(self):
         url = self.config['playlist_url']
         self.channels = {}            
@@ -801,12 +1008,15 @@ class MultiPlayerApp(QMainWindow):
             chan_overlay.deleteLater()
         for mute_overlay in self.mute_overlays:
             mute_overlay.deleteLater()
+        for epg_overlay in getattr(self, 'epg_overlays', []):
+            epg_overlay.deleteLater()
             
         self.videos.clear()
         self.players.clear()
         self.overlays.clear()
         self.channel_overlays.clear()
         self.mute_overlays.clear()
+        self.epg_overlays.clear()
         
         self.single_fs_active = False
         self.single_fs_index = -1
@@ -841,6 +1051,9 @@ class MultiPlayerApp(QMainWindow):
             
             overlay = OverlayControls(self, video_widget, player, i)
             self.overlays.append(overlay)
+            
+            epg_overlay = EPGOverlay(self, video_widget, name)
+            self.epg_overlays.append(epg_overlay)
             
             channel_number = self.stream_groups_numbers[self.current_group_index][i]
             
@@ -1182,7 +1395,8 @@ class ControlsWindow(QWidget):
             ("All Subs ON", self.master_app.subs_all_on),
             ("All Subs OFF", self.master_app.subs_all_off),
             ("Screenshots", self.master_app.take_screenshot_all),
-            ("Combined Screenshot", self.master_app.take_combined_screenshot)
+            ("Combined Screenshot", self.master_app.take_combined_screenshot),
+            ("Toggle EPG", self.master_app.toggle_epg)
         ]
         
         for label, slot in global_actions:
