@@ -5,7 +5,7 @@ A Python application to display multiple IPTV streams simultaneously using VLC, 
 ⚠️ **Note:** This player currently only works on **Windows** (uses `widget.winId()` with `set_hwnd`, and audio backend is Windows-specific).
 
 
-![Example screenshot](2025-06-16_18-31-13_combined_grid.jpg)
+![Example screenshot](2026-07-02_screenshot.png)
 
 ![Controls](controls.png)
 
