@@ -306,14 +306,17 @@ class OverlayControls(QWidget):
         self.update_position()
         self.show()
         self.raise_()
-        if self.windowOpacity() < 1.0 and self.anim.endValue() != 1.0:
+        
+        is_fading_in = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 1.0
+        if self.windowOpacity() < 1.0 and not is_fading_in:
             self.anim.stop()
             self.anim.setStartValue(self.windowOpacity())
             self.anim.setEndValue(1.0)
             self.anim.start()
 
     def fade_out(self):
-        if self.windowOpacity() > 0.0 and self.anim.endValue() != 0.0:
+        is_fading_out = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 0.0
+        if self.windowOpacity() > 0.0 and not is_fading_out:
             self.anim.stop()
             self.anim.setStartValue(self.windowOpacity())
             self.anim.setEndValue(0.0)
@@ -327,6 +330,7 @@ class OverlayControls(QWidget):
         self.anim.stop()
         self.hide_timer.stop()
         self.setWindowOpacity(0.0)
+        self.anim.setEndValue(0.0)
         self.hide()
 
     def mouseDoubleClickEvent(self, event):
@@ -379,14 +383,22 @@ class MultiPlayerApp(QMainWindow):
         self.setPalette(palette)
 
         # Force VLC to use Direct3D11, as older renderers (Direct3D9) often create a 1px border
-        self.instance = vlc.Instance('--quiet', '--network-caching=100', "--aout=directsound", "--vout=direct3d11")
+        self.instance = vlc.Instance('--quiet', '--network-caching=100', "--aout=directsound", "--vout=direct3d11", "--no-keyboard-events")
         self.setup_players(self.stream_groups[self.current_group_index])
         
         # Shortcuts
         QShortcut(QKeySequence("M"), self, self.handle_mute_toggle, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("S"), self, self.handle_sub_toggle, context=Qt.ApplicationShortcut)
         for i in range(1, 10):
-            QShortcut(QKeySequence(str(i)), self, lambda checked=False, idx=i-1: self.mute_only(idx), context=Qt.ApplicationShortcut)
+            QShortcut(QKeySequence(str(i)), self, lambda checked=False, idx=i-1: self.handle_number_shortcut(idx), context=Qt.ApplicationShortcut)
+            
+        QShortcut(QKeySequence("F11"), self, self.toggle_app_fullscreen, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("F"), self, self.toggle_app_fullscreen, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("0"), self, self.toggle_app_fullscreen, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Esc"), self, self.handle_escape, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("*"), self, self.close, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Up"), self, self.unmute_all, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Down"), self, self.mute_all, context=Qt.ApplicationShortcut)
             
         # Default main window size to 1080p instead of forcing borderless fullscreen
         self.resize(1920, 1080)
@@ -509,20 +521,16 @@ class MultiPlayerApp(QMainWindow):
         text = "MUTE" if is_muted else "VOL"
         self.mute_overlays[index].show_icon(text)
 
-    def keyPressEvent(self, event: QKeyEvent):
-        if event.key() == Qt.Key_F11:
-            if self.isFullScreen():
-                if hasattr(self, '_pre_fs_state'):
-                    self.setWindowState(self._pre_fs_state)
-                else:
-                    self.showMaximized()
-            else:
-                self._pre_fs_state = self.windowState()
-                self.showFullScreen()
-        elif event.key() == Qt.Key_Escape and self.single_fs_active:
-            self.toggle_single_fullscreen(self.single_fs_index)
+    def toggle_app_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+            self.showMaximized()
         else:
-            super().keyPressEvent(event)
+            self.showFullScreen()
+
+    def handle_escape(self):
+        if self.single_fs_active:
+            self.toggle_single_fullscreen(self.single_fs_index)
 
     def toggle_single_fullscreen(self, index):
         self.setUpdatesEnabled(False)
@@ -537,10 +545,8 @@ class MultiPlayerApp(QMainWindow):
             for chan_overlay in self.channel_overlays:
                 chan_overlay.show_number()
                 
-            if hasattr(self, '_pre_fs_state'):
-                self.setWindowState(self._pre_fs_state)
-            else:
-                self.showMaximized()
+            self.showNormal()
+            self.showMaximized()
         else:
             self._pre_fs_state = self.windowState()
             # Go single fullscreen
@@ -569,8 +575,10 @@ class MultiPlayerApp(QMainWindow):
             
         self.setUpdatesEnabled(True)
         
-        QTimer.singleShot(100, lambda: [o.update_position() for o in self.overlays])
-        QTimer.singleShot(100, lambda: [c.update_position() for c in self.channel_overlays])
+        for delay in (10, 50, 200, 500):
+            QTimer.singleShot(delay, lambda: [o.update_position() for o in self.overlays])
+            QTimer.singleShot(delay, lambda: [c.update_position() for c in getattr(self, 'channel_overlays', [])])
+            QTimer.singleShot(delay, lambda: [m.update_position() for m in getattr(self, 'mute_overlays', [])])
 
     def load_channels_from_url(self):
         url = self.config['playlist_url']
@@ -741,6 +749,20 @@ class MultiPlayerApp(QMainWindow):
             self.subs_all_off()
         else:
             self.subs_all_on()
+
+    def handle_number_shortcut(self, idx):
+        if idx >= len(self.players):
+            return
+            
+        if self.single_fs_active and self.single_fs_index == idx:
+            # User pressed the same number while in fullscreen. Toggle back to grid.
+            self.toggle_single_fullscreen(idx)
+        else:
+            # User pressed a new number. Solo the audio and isolate the video.
+            self.mute_only(idx)
+            # If it's not already the active fullscreen, trigger it
+            if not (self.single_fs_active and self.single_fs_index == idx):
+                self.toggle_single_fullscreen(idx)
 
     def mute_only(self, index):
         if index >= len(self.overlays): return
