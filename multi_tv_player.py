@@ -521,12 +521,19 @@ class MultiPlayerApp(QMainWindow):
         text = "MUTE" if is_muted else "VOL"
         self.mute_overlays[index].show_icon(text)
 
-    def toggle_app_fullscreen(self):
-        if self.isFullScreen():
-            self.showNormal()
-            self.showMaximized()
+    def update_window_state(self):
+        app_fs = getattr(self, 'app_fs_active', False)
+        if app_fs or self.single_fs_active:
+            if not self.isFullScreen():
+                self.showFullScreen()
         else:
-            self.showFullScreen()
+            if self.isFullScreen():
+                self.showNormal()
+                self.showMaximized()
+
+    def toggle_app_fullscreen(self):
+        self.app_fs_active = not getattr(self, 'app_fs_active', False)
+        self.update_window_state()
 
     def handle_escape(self):
         if self.single_fs_active:
@@ -542,13 +549,11 @@ class MultiPlayerApp(QMainWindow):
             self.single_fs_active = False
             self.single_fs_index = -1
             self.overlays[index].fs_btn.setText("🔲")
-            for chan_overlay in self.channel_overlays:
+            for chan_overlay in getattr(self, 'channel_overlays', []):
                 chan_overlay.show_number()
                 
-            self.showNormal()
-            self.showMaximized()
+            self.update_window_state()
         else:
-            self._pre_fs_state = self.windowState()
             # Go single fullscreen
             for i, v in enumerate(self.videos):
                 if i != index:
@@ -571,7 +576,7 @@ class MultiPlayerApp(QMainWindow):
             if index < len(self.channel_overlays):
                 self.channel_overlays[index].show_number()
                 
-            self.showFullScreen()
+            self.update_window_state()
             
         self.setUpdatesEnabled(True)
         
