@@ -58,7 +58,7 @@ pip install -r requirements.txt
    - **Single Click**: Click anywhere on a video stream to instantly toggle mute/unmute.
    - **Double Click**: Double-click a video to isolate it (hides other streams and fills the window). Double-click again to return to the grid.
    - **Number Keys (1-9)**: Press any number to instantly jump to that video in single-fullscreen and solo its audio. Press the same number again to toggle back.
-   - **F / F11**: Toggles True Borderless Fullscreen for the application window.
+   - **0 / F / F11**: Toggles True Borderless Fullscreen for the application window.
 
 ---
 
@@ -76,7 +76,7 @@ A separate window (`ControlsWindow`) provides global system toggles:
 - `Down Arrow` – Mute all players
 - `S` – Toggle subtitles on/off all players  
 - `1`–`9` – Instantly isolate the specified player (fullscreen + solo audio). Press the same number again to return to the grid.
-- `F` / `F11` – Toggle fullscreen
+- `0` / `F` / `F11` – Toggle fullscreen
 - `*` – Instantly close the application
 
 Screenshots are saved to:
