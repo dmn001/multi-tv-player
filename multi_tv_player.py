@@ -245,6 +245,22 @@ class OverlayControls(QWidget):
         self.hide_timer.timeout.connect(self.fade_out)
         
         self.sub_state = False
+        
+        # Auto-enable subtitles once the stream loads
+        self.init_sub_timer = QTimer(self)
+        self.init_sub_timer.timeout.connect(self._try_init_subs)
+        self.init_sub_timer.start(1000)
+        self._sub_attempts = 0
+
+    def _try_init_subs(self):
+        self._sub_attempts += 1
+        tracks = self.player.video_get_spu_description() or []
+        valid_tracks = [t[0] for t in tracks if t[0] != -1]
+        if valid_tracks:
+            self.set_subtitles(True)
+            self.init_sub_timer.stop()
+        elif self._sub_attempts > 10:
+            self.init_sub_timer.stop()
 
     def toggle_mute(self):
         current_mute = self.player.audio_get_mute()
@@ -508,14 +524,19 @@ class MultiPlayerApp(QMainWindow):
                 chan_overlay.update_position()
             for mute_overlay in getattr(self, 'mute_overlays', []):
                 mute_overlay.update_position()
-        elif event.type() == QEvent.MouseButtonRelease:
+                
+        elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             if getattr(self, '_ignore_next_release', False):
                 self._ignore_next_release = False
                 return super().eventFilter(obj, event)
                 
             if obj in self.videos:
                 index = self.videos.index(obj)
-                # Wait 250ms to ensure it's not a double-click
+                
+                if getattr(self, 'single_fs_active', False):
+                    if event.pos().y() <= obj.height() * (2/3):
+                        return super().eventFilter(obj, event)
+                        
                 if hasattr(self, '_single_click_timer') and self._single_click_timer.isActive():
                     return super().eventFilter(obj, event)
                     
@@ -524,13 +545,14 @@ class MultiPlayerApp(QMainWindow):
                 self._single_click_timer.timeout.connect(lambda idx=index: self.handle_single_click(idx))
                 self._single_click_timer.start(250)
                 
-        elif event.type() == QEvent.MouseButtonDblClick:
+        elif event.type() == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
             self._ignore_next_release = True
             if hasattr(self, '_single_click_timer') and self._single_click_timer.isActive():
                 self._single_click_timer.stop()
             if obj in self.videos:
                 index = self.videos.index(obj)
                 self.toggle_single_fullscreen(index)
+                
         return super().eventFilter(obj, event)
 
     def handle_single_click(self, index):
@@ -549,8 +571,39 @@ class MultiPlayerApp(QMainWindow):
                 self.showMaximized()
 
     def toggle_app_fullscreen(self):
-        self.app_fs_active = not getattr(self, 'app_fs_active', False)
-        self.update_window_state()
+        app_fs = getattr(self, 'app_fs_active', False)
+        single_fs = self.single_fs_active
+        
+        if not hasattr(self, 'fs_grid_direction_up'):
+            self.fs_grid_direction_up = True
+            
+        if not app_fs and not single_fs:
+            # Max Window -> Full Screen Grid
+            self.app_fs_active = True
+            self.fs_grid_direction_up = True
+            self.update_window_state()
+            
+        elif single_fs:
+            # Full Screen 1 Vid -> Full Screen Grid
+            self.toggle_single_fullscreen(self.single_fs_index)
+            self.app_fs_active = True
+            self.fs_grid_direction_up = False
+            self.update_window_state()
+            
+        elif app_fs and not single_fs:
+            # We are in Full Screen Grid. Check direction.
+            if self.fs_grid_direction_up:
+                # Full Screen Grid -> Full Screen 1 Vid
+                target_index = getattr(self, 'locked_audio_index', -1)
+                if target_index == -1:
+                    target_index = getattr(self, 'last_single_fs_index', 0)
+                self.toggle_single_fullscreen(target_index)
+                self.app_fs_active = True
+                self.fs_grid_direction_up = False
+            else:
+                # Full Screen Grid -> Max Window
+                self.app_fs_active = False
+                self.update_window_state()
 
     def handle_escape(self):
         if self.single_fs_active:
@@ -576,8 +629,11 @@ class MultiPlayerApp(QMainWindow):
                 if i != index:
                     v.hide()
                     self.overlays[i].hide_instantly()
-                    if i < len(self.channel_overlays):
+                    if i < len(getattr(self, 'channel_overlays', [])):
                         self.channel_overlays[i].hide()
+                    if i < len(getattr(self, 'mute_overlays', [])):
+                        self.mute_overlays[i].hide()
+                        self.mute_overlays[i].hide_timer.stop()
             self.videos[index].show()
             self.single_fs_active = True
             
@@ -585,6 +641,7 @@ class MultiPlayerApp(QMainWindow):
                 self.overlays[self.single_fs_index].fs_btn.setText("🔲")
                 
             self.single_fs_index = index
+            self.last_single_fs_index = index
             self.overlays[index].fs_btn.setText("🔳")
             
             # Automatically unmute this video and mute all others
