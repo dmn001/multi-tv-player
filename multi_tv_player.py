@@ -404,10 +404,10 @@ class MultiPlayerApp(QMainWindow):
         self.resize(1920, 1080)
 
         # Hover checker
-        self.hover_checker = QTimer(self)
-        self.hover_checker.setInterval(150)
-        self.hover_checker.timeout.connect(self.check_hover)
-        self.hover_checker.start()
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setInterval(15)
+        self.hover_timer.timeout.connect(self.check_hover)
+        self.hover_timer.start()
         
         self.installEventFilter(self)
 
