@@ -75,8 +75,9 @@ class ChannelOverlay(QWidget):
         initial_text = self.override_number if self.override_number else self.real_channel_number
         self.playing_signal.connect(self.show_number)
         
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setStyleSheet("background-color: transparent;")
         
         self.setFixedSize(200, 140)
@@ -202,8 +203,9 @@ class OverlayControls(QWidget):
         self.player = player
         self.index = index
         
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 10, 0)
@@ -274,6 +276,8 @@ class OverlayControls(QWidget):
 
     def toggle_mute(self):
         current_mute = self.player.audio_get_mute()
+        if current_mute == -1:
+            current_mute = 1
         is_muted = not current_mute
         self.set_mute_ui(is_muted)
         
@@ -469,8 +473,9 @@ class EPGOverlay(QWidget):
         self.target_widget = target_widget
         self.channel_name = channel_name
         
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowTransparentForInput | Qt.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -1016,6 +1021,8 @@ class MultiPlayerApp(QMainWindow):
                 else:
                     for i, overlay in enumerate(self.overlays):
                         is_currently_muted = overlay.player.audio_get_mute()
+                        if is_currently_muted == -1:
+                            is_currently_muted = 1
                         if i == index:
                             if is_currently_muted:
                                 overlay.toggle_mute()
@@ -1725,7 +1732,7 @@ if __name__ == "__main__":
     if main_app.windowHandle():
         main_app.windowHandle().setScreen(target_screen)
     main_app.move(target_screen.geometry().topLeft())
-    main_app.showMaximized()
+    QTimer.singleShot(100, main_app.showMaximized)
 
     all_groups_labels = list(config['stream_groups'].keys())
     controls = ControlsWindow(main_app, all_groups_labels)
