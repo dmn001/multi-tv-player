@@ -476,16 +476,19 @@ class EPGOverlay(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         
         self.bg_frame = QFrame(self)
+        self.bg_frame.setObjectName("epgBg")
         self.bg_frame.setStyleSheet("""
-            QFrame {
+            #epgBg {
                 background-color: rgba(0, 0, 0, 180);
                 border-radius: 8px;
+                border: none;
             }
             QLabel {
                 color: white;
                 background: transparent;
                 margin: 0px;
                 padding: 0px;
+                border: none;
             }
         """)
         main_layout.addWidget(self.bg_frame)
@@ -528,31 +531,36 @@ class EPGOverlay(QWidget):
         self.now_label.setWordWrap(True)
         self.next_label.setWordWrap(True)
         if is_single_fs:
-            self.setMinimumWidth(600)
-            self.setMaximumWidth(900)
-            self.now_label.setStyleSheet("font-weight: bold; font-size: 24px;")
-            self.desc_label.setStyleSheet("font-size: 18px; color: #dddddd;")
+            self.setFixedWidth(900)
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 24px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.desc_label.setStyleSheet("font-size: 18px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
             self.progress_bar.set_fullscreen(True)
-            self.next_label.setStyleSheet("font-size: 18px; color: #aaaaaa;")
+            self.next_label.setStyleSheet("font-size: 18px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
         else:
-            self.setMinimumWidth(380)
-            self.setMaximumWidth(600)
-            self.now_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-            self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd;")
+            self.setFixedWidth(600)
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 14px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
             self.progress_bar.set_fullscreen(False)
-            self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+            self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
 
     def update_position(self):
         if not hasattr(self, 'target_widget') or not self.target_widget.isVisible() or self.target_widget.width() == 0:
             return
             
         is_fs = getattr(self.master_app, 'single_fs_active', False)
+        fs_changed = not hasattr(self, 'last_is_fs') or self.last_is_fs != is_fs
+        self.last_is_fs = is_fs
+        
         self.update_fonts(is_fs)
             
         rect = self.target_widget.geometry()
         top_left = self.target_widget.mapToGlobal(QPoint(0, 0))
         
-        self.adjustSize()
+        if fs_changed:
+            self.layout.invalidate()
+            h = self.layout.heightForWidth(self.width()) if self.layout.hasHeightForWidth() else self.layout.sizeHint().height()
+            self.setFixedHeight(h)
+            
         x = top_left.x() + (rect.width() - self.width()) // 2
         y = top_left.y()
         self.move(x, y)
@@ -595,6 +603,9 @@ class EPGOverlay(QWidget):
         self.progress_bar.update_data(data.get('start_ts'), data.get('stop_ts'), start_str, stop_str)
         
         if needs_resize:
+            self.layout.invalidate()
+            h = self.layout.heightForWidth(self.width()) if self.layout.hasHeightForWidth() else self.layout.sizeHint().height()
+            self.setFixedHeight(h)
             self.update_position()
         
     def show_instantly(self):
@@ -813,6 +824,19 @@ class MultiPlayerApp(QMainWindow):
             over_video = (-margin <= mapped_video_pos.x() <= video_rect.width() + margin) and \
                          (-margin <= mapped_video_pos.y() <= video_rect.height() + margin)
             
+            try:
+                overlay_idx = self.videos.index(overlay.target_widget)
+            except ValueError:
+                overlay_idx = -1
+                
+            is_forced = getattr(self, 'single_fs_active', False) and \
+                        overlay_idx == getattr(self, 'single_fs_index', -1) and \
+                        time.time() < getattr(self, 'force_show_overlays_until', 0)
+                        
+            if is_forced:
+                over_video = True
+                mouse_is_idle = False
+            
             overlay_rect = overlay.rect()
             mapped_overlay_pos = overlay.mapFromGlobal(pos)
             over_overlay = overlay.isVisible() and overlay_rect.contains(mapped_overlay_pos)
@@ -919,6 +943,24 @@ class MultiPlayerApp(QMainWindow):
                 print(f"Windows API hack failed: {e}")
 
     def eventFilter(self, obj, event):
+        if event.type() == QEvent.Wheel:
+            delta = event.angleDelta().y() if hasattr(event, 'angleDelta') else 0
+            if delta != 0:
+                if getattr(self, 'single_fs_active', False):
+                    # Scroll down -> next channel, Scroll up -> prev channel (no wrapping)
+                    if delta < 0:
+                        next_idx = min(self.single_fs_index + 1, len(self.videos) - 1)
+                    else:
+                        next_idx = max(self.single_fs_index - 1, 0)
+                        
+                    if next_idx != self.single_fs_index:
+                        self.toggle_single_fullscreen(next_idx)
+                else:
+                    # In grid view, scroll down to enter single fs on index 0
+                    if delta < 0:
+                        self.toggle_single_fullscreen(0)
+                return True
+                
         if event.type() in (QEvent.Move, QEvent.Resize):
             for overlay in self.overlays:
                 overlay.update_position()
@@ -1074,6 +1116,8 @@ class MultiPlayerApp(QMainWindow):
             self.update_window_state()
         else:
             # Go single fullscreen
+            import time
+            self.force_show_overlays_until = time.time() + 1.6
             for i, v in enumerate(self.videos):
                 if i != index:
                     v.hide()
@@ -1178,6 +1222,7 @@ class MultiPlayerApp(QMainWindow):
                         self.channels_by_number[channel_number] = (channel_name, stream_url)
 
     def setup_players(self, streams):
+        self.epg_mode = 'hover'
         for player in self.players:
             player.stop()
         for video in self.videos:
