@@ -441,15 +441,24 @@ class SmoothProgressBar(QWidget):
         margin = int(rect.height() / 2) + 2
         painter.drawText(rect.adjusted(margin, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, left_text)
         
-        duration_mins = total // 60
+        dur_hours = total // 3600
+        dur_mins = (total % 3600) // 60
+        if dur_hours > 0:
+            dur_str = f"{dur_hours}h {dur_mins}m"
+        else:
+            dur_str = f"{dur_mins}m"
         pct_str = f"{progress_pct*100:.1f}%"
-        center_text = f"{duration_mins}m ({pct_str})"
+        center_text = f"{dur_str} ({pct_str})"
         painter.drawText(rect, Qt.AlignCenter, center_text)
         
         remaining = max(0, self.stop_ts - now)
-        rem_mins = remaining // 60
+        rem_hours = remaining // 3600
+        rem_mins = (remaining % 3600) // 60
         rem_secs = remaining % 60
-        right_text = f"{rem_mins:02d}:{rem_secs:02d}"
+        if rem_hours > 0:
+            right_text = f"{rem_hours}:{rem_mins:02d}:{rem_secs:02d}"
+        else:
+            right_text = f"{rem_mins:02d}:{rem_secs:02d}"
         painter.drawText(rect.adjusted(0, 0, -margin, 0), Qt.AlignRight | Qt.AlignVCenter, right_text)
         painter.end()
 
@@ -555,16 +564,29 @@ class EPGOverlay(QWidget):
         
     def update_data(self, data):
         if not data:
-            self.now_label.setText("No EPG Data")
-            self.desc_label.setText("")
-            self.progress_bar.update_data(None, None, "", "")
-            self.next_label.setText("")
+            if self.now_label.text() != "No EPG Data":
+                self.now_label.setText("No EPG Data")
+                self.desc_label.setText("")
+                self.progress_bar.update_data(None, None, "", "")
+                self.next_label.setText("")
+                self.update_position()
             return
             
-        self.now_label.setText(f"{data.get('now_title', '')}")
-        desc = data.get('desc', '')
-        self.desc_label.setText(desc)
+        new_now = f"{data.get('now_title', '')}"
+        new_desc = data.get('desc', '')
+        new_next = f"NEXT: {data.get('next_title')} ({data.get('next_time', '')})" if data.get('next_title') else ""
         
+        needs_resize = False
+        if self.now_label.text() != new_now:
+            self.now_label.setText(new_now)
+            needs_resize = True
+        if self.desc_label.text() != new_desc:
+            self.desc_label.setText(new_desc)
+            needs_resize = True
+        if self.next_label.text() != new_next:
+            self.next_label.setText(new_next)
+            needs_resize = True
+            
         time_str = data.get('now_time', ' - ')
         parts = time_str.split(' - ')
         start_str = parts[0].strip() if len(parts) > 0 else ""
@@ -572,11 +594,8 @@ class EPGOverlay(QWidget):
         
         self.progress_bar.update_data(data.get('start_ts'), data.get('stop_ts'), start_str, stop_str)
         
-        if data.get('next_title'):
-            self.next_label.setText(f"NEXT: {data.get('next_title')} ({data.get('next_time', '')})")
-        else:
-            self.next_label.setText("")
-        self.update_position()
+        if needs_resize:
+            self.update_position()
         
     def fade_in(self):
         if not getattr(self.master_app, 'show_epg_overlays', True):
@@ -742,6 +761,7 @@ class MultiPlayerApp(QMainWindow):
         QShortcut(QKeySequence("0"), self, self.toggle_app_fullscreen, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("Esc"), self, self.handle_escape, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("*"), self, self.close, context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Ctrl+W"), self, self.close, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("Up"), self, self.unmute_all, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("Down"), self, self.mute_all, context=Qt.ApplicationShortcut)
             
@@ -1480,8 +1500,8 @@ class ControlsWindow(QWidget):
             import pytz
             uk_tz = pytz.timezone('Europe/London')
             now = datetime.now(uk_tz)
-            if now.hour >= 19:
-                # 7pm or later: Center on the bottom-left tile
+            if now.hour >= 19 or now.hour < 7:
+                # 7pm to 7am: Center on the bottom-left tile
                 cols = getattr(self.master_app, 'grid_cols', 3)
                 col_width = rect.width() / cols
                 x = int((col_width - w) / 2)
