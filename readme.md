@@ -2,9 +2,9 @@
 
 A Python application to display multiple IPTV streams simultaneously using VLC. It features a robust PySide6-based UI, interactive video overlays (muting, EPG data, subtitles, screenshots), scroll navigation, and seamless group switching.
 
-![Example screenshot](2026-07-02_screenshot.png)
+![Latest grid screenshot](2026-07-03_screenshot.png)
 
-![Controls](controls.png)
+![Previous grid screenshot](2026-07-02_screenshot.png)
 
 ---
 
