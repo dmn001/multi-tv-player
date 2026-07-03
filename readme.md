@@ -1,19 +1,24 @@
 # multi-tv-player
 
-A Python application to display multiple IPTV streams simultaneously using VLC, with a PySide6-based control panel and interactive video overlays for muting, subtitles, screenshots, and group switching.
-
-### Features
-* **Single-Fullscreen:** Double-click any video to instantly expand it to full screen. Double-click again to return to the grid.
-* **Hover Controls:** Move your mouse over any video feed to reveal quick controls for mute, subtitles, fullscreen, and screenshots.
-* **Click to Mute:** Click anywhere on a video to quickly toggle its audio on or off.
-* **Numpad Quick-Switch:** Press keys `1`–`9` to instantly isolate any channel (expanding it to full screen and soloing the audio).
-
-⚠️ **Note:** This player currently only works on **Windows** (uses `widget.winId()` with `set_hwnd`, and audio backend is Windows-specific).
-
+A Python application to display multiple IPTV streams simultaneously using VLC. It features a robust PySide6-based UI, interactive video overlays (muting, EPG data, subtitles, screenshots), scroll navigation, and seamless group switching.
 
 ![Example screenshot](2026-07-02_screenshot.png)
 
 ![Controls](controls.png)
+
+---
+
+## Key Features
+
+* **Dynamic Grid Layout:** Play multiple VLC streams simultaneously in customizable grid layouts (e.g., 2x2, 3x3) defined via your configuration file.
+* **Live EPG Overlays:** Automatically fetches and displays live Electronic Program Guide (EPG) data (Program Name, Start/End Time, Channel Name) seamlessly at the bottom of each video feed.
+* **Single-Fullscreen & Scroll Surfing:** Double-click any channel in the grid to isolate it in full-screen. While in full-screen, **use your mouse scroll wheel** to surf up and down through the channels. Double-click again to return to the grid.
+* **Instant Click-to-Mute:** Single-click any video to instantly toggle its audio (and mute all other streams). A clear "VOL" or "MUTE" indicator will flash to confirm your action. 
+* **Interactive Hover Controls:** Move your mouse over any feed to reveal quick actions: Mute, Subtitles, Screenshot, and Fullscreen toggles.
+* **Numpad Quick-Switch:** Press keys `1`–`9` to instantly isolate the corresponding channel, expanding it to full screen and soloing its audio.
+* **Global Control Panel:** A floating companion window provides system-wide toggles (Mute All, Unmute All, Subs, Combined Screenshots) and lets you instantly switch between your predefined channel groups.
+
+⚠️ **Note:** This player currently only works on **Windows** (uses `widget.winId()` with `set_hwnd`, and the audio backend is Windows-specific).
 
 ---
 
@@ -28,6 +33,7 @@ A Python application to display multiple IPTV streams simultaneously using VLC, 
   - `screeninfo`
   - `requests`
   - `Pillow`
+  - `PyYAML`
 
 Install dependencies via:
 
@@ -37,63 +43,27 @@ pip install -r requirements.txt
 
 ---
 
-## How It Works
-
-1. On startup, the app fetches an M3U playlist from:
-   ```
-   http://192.168.1.73:9981/playlist
-   ```
-   Parses lines to extract channel names, numbers (`tvg-chno`), and stream URLs.
-
-2. `MultiPlayerApp` creates a full-screen grid of VLC players on monitor 1, based on the currently selected "group" of channels (e.g., `['101','102','103','104']` forms a 2×2 grid).
-
-3. VLC backend is configured with:
-   ```python
-   vlc.Instance('--quiet', '--network-caching=100', "--aout=directsound")
-   ```
-   Grid layout adjusts to 1×1, 2×2, or 3×3 based on group size.
-
-4. Interactive Video Features:
-   - **Hover Controls**: Move your mouse over any video to reveal individual controls (Mute, Subtitles, Screenshot, Fullscreen).
-   - **Single Click**: Click anywhere on a video stream to instantly toggle mute/unmute.
-   - **Double Click**: Double-click a video to isolate it (hides other streams and fills the window). Double-click again to return to the grid.
-   - **Number Keys (1-9)**: Press any number to instantly jump to that video in single-fullscreen and solo its audio. Press the same number again to toggle back.
-   - **0 / F / F11**: Toggles True Borderless Fullscreen for the application window.
-
----
-
-## Global Control Panel
-
-A separate window (`ControlsWindow`) provides global system toggles:
-
-- Global controls: Unmute All, Mute All, All Subs ON/OFF, Screenshots, Combined Screenshot  
-- Buttons to switch between predefined stream groups
-
-### Keyboard Shortcuts
+## Keyboard Shortcuts
 
 - `M` – Toggle mute/unmute all players
 - `Up Arrow` – Unmute all players
 - `Down Arrow` – Mute all players
 - `S` – Toggle subtitles on/off all players  
 - `1`–`9` – Instantly isolate the specified player (fullscreen + solo audio). Press the same number again to return to the grid.
-- `0` / `F` / `F11` – Toggle fullscreen
+- `0` / `F` / `F11` – Toggle True Borderless Fullscreen for the application window.
+- `Mouse Scroll Wheel` – (While in single-fullscreen mode) Surf up and down through the available channels.
 - `*` – Instantly close the application
 
-Screenshots are saved to:
-```
-~/Downloads/tvplayer_screenshots
-```
+Screenshots are saved to: `~/Downloads/tvplayer_screenshots`
 Files are named with the timestamp and safe channel name. Combined screenshots merge the grid into one image.
 
 ---
 
-### Configuration
+## Configuration (`config.yaml`)
 
-All application settings are now managed through a **YAML configuration file**, providing a cleaner and more flexible way to customize your setup.
+All application settings are managed through a **YAML configuration file**. 
 
-### `config.yaml`
-
-A file named `config.yaml` (or `example_config.yaml`) should be present in the same directory as the script. If `config.yaml` doesn't exist, the script will fall back to `example_config.yaml`. It's recommended to **rename `example_config.yaml` to `config.yaml`** and then modify it with your personal settings, as updates to the repository may overwrite changes to `example_config.yaml`.
+A file named `config.yaml` (or `example_config.yaml`) should be present in the same directory as the script. If `config.yaml` doesn't exist, the script will fall back to `example_config.yaml`. It's recommended to **rename `example_config.yaml` to `config.yaml`** and then modify it with your personal settings.
 
 Here's an example of the `config.yaml` structure:
 
@@ -101,6 +71,7 @@ Here's an example of the `config.yaml` structure:
 # Rename this file to config.yaml for custom settings.
 
 playlist_url: "http://192.168.1.73:9981/playlist" # Your M3U playlist URL
+epg_url: "http://192.168.1.73:9981/xmltv/channels" # Optional EPG URL
 
 stream_groups: # Define groups of channel numbers for quick switching
   3x3: ['101', '102', '103', '104', '105', '204', '203', '107', '106']
@@ -116,43 +87,30 @@ stream_groups: # Define groups of channel numbers for quick switching
 python multi_tv_player.py
 ```
 
-This launches the full-screen video grid. The control panel appears automatically.
+This launches the full-screen video grid. The floating global control panel will appear automatically.
 
 ---
 
 ## Notes & Limitations
 
-- **Windows-only**: uses `player.set_hwnd`, and audio backend is Windows-specific
-- No error management for unavailable streams
-- Limited subtitle support, selects first available track
-- Only supports M3U-style playlists served via HTTP
+- **Windows-only**: uses `player.set_hwnd`, and the video/audio backends are optimized for Direct3D11 and DirectSound.
+- Limited subtitle support, selects first available track.
+- Only supports M3U-style playlists served via HTTP.
 
 ---
 
 ### Simultaneous Playback in TVHeadend 📺
----
 
 For simultaneous channel playback in **TVHeadend**, a key understanding lies in how digital broadcasts are structured and delivered.
 
-### Muxes (Multiplexes)
----
+**Muxes (Multiplexes)**  
+In **DVB-T/T2** broadcasts, channels are organized into groups called **"muxes"** (multiplexes). Each mux is transmitted on a specific frequency. A single tuner, once tuned to a particular mux, can access all the channels carried on that frequency without requiring additional tuners. *(Note: For Freeview HD in the UK, it's common for multiple HD channels to be grouped on the same high-capacity DVB-T2 mux, allowing a single tuner to access them concurrently.)*
 
-In **DVB-T/T2** broadcasts, channels are organized into groups called **"muxes"** (multiplexes). Each mux is transmitted on a specific frequency. A single tuner, once tuned to a particular mux, can access all the channels carried on that frequency without requiring additional tuners. **Note: For Freeview HD in the UK, it's common for multiple HD channels (e.g., BBC One HD, ITV1 HD) to be grouped on the same high-capacity DVB-T2 mux, allowing a single tuner to access them concurrently.**
+**Multiple Tuners for Different Muxes**  
+To view channels from **different muxes concurrently**, you'll need **multiple tuners**. For instance, if BBC ONE HD and BBC News SD are broadcast on separate muxes, watching both at the same time will necessitate two distinct tuners.
 
----
-
-### Multiple Tuners for Different Muxes
----
-
-In order to view channels from **different muxes concurrently**, you'll need **multiple tuners**. For instance, if **BBC ONE HD** and **BBC News SD** are broadcast on separate muxes, watching both at the same time will necessitate the use of two distinct tuners.
-
----
-
-### IPTV/Streaming Sources
----
-
-For **IPTV playlists** or servers that provide independent streams (such as those involving transcoding or direct feeds), the limitations imposed by muxes generally **do not apply**. In these scenarios, each stream is handled independently, provided your server and network infrastructure can manage the load.
-
+**IPTV/Streaming Sources**  
+For **IPTV playlists** or servers that provide independent streams, the limitations imposed by muxes generally **do not apply**. Each stream is handled independently, provided your server and network infrastructure can manage the load.
 
 ## License
 
