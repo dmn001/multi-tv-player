@@ -259,7 +259,7 @@ class OverlayControls(QWidget):
         # Auto-enable subtitles once the stream loads
         self.init_sub_timer = QTimer(self)
         self.init_sub_timer.timeout.connect(self._try_init_subs)
-        self.init_sub_timer.start(1000)
+        QTimer.singleShot(3600, lambda: self.init_sub_timer.start(1000))
         self._sub_attempts = 0
 
     def _try_init_subs(self):
@@ -597,12 +597,22 @@ class EPGOverlay(QWidget):
         if needs_resize:
             self.update_position()
         
+    def show_instantly(self):
+        if not getattr(self.master_app, 'show_epg_overlays', True):
+            return
+            
+        self.show()
+        self.update_position()
+        self.anim.stop()
+        self.opacity_effect.setOpacity(1.0)
+        self.raise_()
+
     def fade_in(self):
         if not getattr(self.master_app, 'show_epg_overlays', True):
             return
             
-        self.update_position()
         self.show()
+        self.update_position()
         self.raise_()
         
         is_fading_in = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 1.0
@@ -719,7 +729,7 @@ class MultiPlayerApp(QMainWindow):
         self.mute_overlays = []
         
         self.show_epg_overlays = True
-        self.epg_mode = 'locked'
+        self.epg_mode = 'hover'
         self.epg_data = {}
         self.epg_overlays = []
         self.epg_fetcher = EPGFetcher()
@@ -1281,7 +1291,17 @@ class MultiPlayerApp(QMainWindow):
             self.players[idx].play()
             if getattr(self, 'epg_mode', 'locked') == 'locked' and idx < len(getattr(self, 'epg_overlays', [])):
                 if self.epg_overlays[idx].windowOpacity() == 0.0:
-                    QTimer.singleShot(200, self.epg_overlays[idx].fade_in)
+                    QTimer.singleShot(3600, self.epg_overlays[idx].show_instantly)
+            
+            if not self.load_queue:
+                QTimer.singleShot(3600, self._auto_lock_epg)
+
+    def _auto_lock_epg(self):
+        if getattr(self, 'epg_mode', 'hover') != 'locked':
+            self.epg_mode = 'locked'
+            for o in getattr(self, 'epg_overlays', []):
+                if o.windowOpacity() == 0.0:
+                    o.show_instantly()
 
     def set_vlc_video_widget(self, player, widget):
         if sys.platform.startswith('linux'):
