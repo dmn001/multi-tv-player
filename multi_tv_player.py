@@ -961,9 +961,11 @@ class MultiPlayerApp(QMainWindow):
                     if next_idx != self.single_fs_index:
                         self.toggle_single_fullscreen(next_idx)
                 else:
-                    # In grid view, scroll down to enter single fs on index 0
+                    # In grid view, scroll down to enter single fs on the active (unmuted) video
                     if delta < 0:
-                        self.toggle_single_fullscreen(0)
+                        unmuted_indices = [i for i, o in enumerate(self.overlays) if o.player.audio_get_mute() == 0]
+                        target_idx = unmuted_indices[0] if unmuted_indices else 0
+                        self.toggle_single_fullscreen(target_idx)
                 return True
                 
         if event.type() in (QEvent.Move, QEvent.Resize):
