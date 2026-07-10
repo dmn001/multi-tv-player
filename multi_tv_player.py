@@ -5,6 +5,7 @@ from datetime import datetime
 import requests
 import re
 import yaml
+import random
 
 import vlc
 from screeninfo import get_monitors
@@ -13,7 +14,7 @@ from PIL import Image
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QGridLayout, QFrame,
     QDialog, QPushButton, QHBoxLayout, QVBoxLayout, QLabel,
-    QGraphicsDropShadowEffect, QGraphicsOpacityEffect
+    QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QComboBox
 )
 from PySide6.QtCore import (
     Qt, QTimer, QObject, QEvent, QPropertyAnimation, QPoint,
@@ -236,15 +237,81 @@ class OverlayControls(QWidget):
         self.scr_btn = QPushButton("📸")
         self.scr_btn.setStyleSheet(btn_style)
         self.scr_btn.clicked.connect(self.take_screenshot)
-        
-        self.fs_btn = QPushButton("🔲")
+            
+        self.fs_btn = QPushButton("🗖")
         self.fs_btn.setStyleSheet(btn_style)
         self.fs_btn.clicked.connect(self.toggle_fullscreen)
+        
+        self.rand_btn = QPushButton("?")
+        self.rand_btn.setStyleSheet(btn_style)
+        self.rand_btn.clicked.connect(self.on_random_channel_clicked)
+        
+        self.prev_btn = QPushButton("<")
+        self.prev_btn.setStyleSheet(btn_style)
+        self.prev_btn.clicked.connect(self.on_prev_channel_clicked)
+        
+        self.next_btn = QPushButton(">")
+        self.next_btn.setStyleSheet(btn_style)
+        self.next_btn.clicked.connect(self.on_next_channel_clicked)
+        
+        # Add channel dropdown
+        self.channel_dropdown = QComboBox()
+        self.channel_dropdown.wheelEvent = lambda event: event.ignore()
+        self.channel_dropdown.setMaxVisibleItems(30)
+        self.channel_dropdown.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(30, 30, 30, 220);
+                color: white;
+                border: 1px solid #555;
+                padding: 5px 10px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #555;
+            }
+            QComboBox QAbstractItemView {
+                background-color: rgba(60, 60, 60, 255);
+                color: white;
+                selection-background-color: rgba(100, 100, 100, 255);
+            }
+        """)
+        
+        try:
+            sorted_channels = sorted(
+                self.master_app.channels_by_number.items(), 
+                key=lambda item: int(item[0]) if str(item[0]).isdigit() else 999999
+            )
+        except Exception:
+            sorted_channels = self.master_app.channels_by_number.items()
+            
+        for num, data in sorted_channels:
+            name, url = data
+            self.channel_dropdown.addItem(f"{num} - {name}", str(num))
+            
+        current_streams = self.master_app.stream_groups[self.master_app.current_group_index]
+        if self.index < len(current_streams):
+            current_url = current_streams[self.index][1]
+            for idx in range(self.channel_dropdown.count()):
+                num = self.channel_dropdown.itemData(idx)
+                if num in self.master_app.channels_by_number and self.master_app.channels_by_number[num][1] == current_url:
+                    self.channel_dropdown.setCurrentIndex(idx)
+                    break
+                    
+        self.channel_dropdown.currentIndexChanged.connect(self.on_channel_dropdown_changed)
         
         layout.addWidget(self.mute_btn)
         layout.addWidget(self.sub_btn)
         layout.addWidget(self.scr_btn)
         layout.addWidget(self.fs_btn)
+        layout.addWidget(self.rand_btn)
+        layout.addWidget(self.channel_dropdown)
+        layout.addWidget(self.prev_btn)
+        layout.addWidget(self.next_btn)
+        
+        if hasattr(self.master_app, 'epg_data'):
+            self.update_epg_labels(self.master_app.epg_data)
         
         self.anim = QPropertyAnimation(self, b"windowOpacity")
         self.anim.setDuration(250)
@@ -324,6 +391,93 @@ class OverlayControls(QWidget):
 
     def toggle_fullscreen(self):
         self.master_app.toggle_single_fullscreen(self.index)
+        
+    def on_prev_channel_clicked(self):
+        self.master_app.cycle_channel(self.index, -1)
+        
+    def on_next_channel_clicked(self):
+        self.master_app.cycle_channel(self.index, 1)
+        
+    def on_random_channel_clicked(self):
+        try:
+            channels = list(self.master_app.channels_by_number.items())
+            if not channels: return
+            random_channel = random.choice(channels)
+            
+            # Use cycle_channel's underlying logic but directly switch to this channel
+            # Find the index of this random channel in the sorted list
+            sorted_channels = sorted(
+                self.master_app.channels_by_number.items(), 
+                key=lambda item: int(item[0]) if str(item[0]).isdigit() else 999999
+            )
+            random_sorted_idx = -1
+            for idx, (num, data) in enumerate(sorted_channels):
+                if num == random_channel[0]:
+                    random_sorted_idx = idx
+                    break
+                    
+            if random_sorted_idx != -1:
+                # To simulate cycling to this specific index, we can compute the direction jump
+                # Or just manually switch it as on_channel_dropdown_changed does
+                channel_num = random_channel[0]
+                channel_data = random_channel[1]
+                
+                # Update the player media
+                media = self.master_app.create_media(channel_data[0], channel_data[1])
+                self.player.set_media(media)
+                self.player.play()
+                
+                # Update the master_app's stream state
+                current_streams = self.master_app.stream_groups[self.master_app.current_group_index]
+                if self.index < len(current_streams):
+                    current_streams[self.index] = channel_data
+                    
+                    # Update EPG if we have one
+                    if hasattr(self.master_app, 'epg_overlays') and self.index < len(self.master_app.epg_overlays):
+                        self.master_app.epg_overlays[self.index].channel_name = channel_data[0]
+                        epg_data = getattr(self.master_app, 'epg_data', {})
+                        self.master_app.epg_overlays[self.index].update_data(epg_data.get(channel_data[0], {}))
+                        
+                if hasattr(self.master_app, 'all_groups_labels'):
+                    try:
+                        one_by_one_idx = self.master_app.all_groups_labels.index('1x1')
+                        if self.master_app.current_group_index == one_by_one_idx:
+                            self.master_app.stream_groups[one_by_one_idx] = [channel_data]
+                    except ValueError:
+                        pass
+                        
+                # Update Top Left Number
+                if self.index < len(self.master_app.channel_overlays):
+                    self.master_app.channel_overlays[self.index].real_channel_number = str(channel_num)
+                    self.master_app.channel_overlays[self.index].show_number()
+                    
+                # Update Dropdown UI
+                self.channel_dropdown.blockSignals(True)
+                for idx in range(self.channel_dropdown.count()):
+                    num = self.channel_dropdown.itemData(idx)
+                    if num == str(channel_num):
+                        self.channel_dropdown.setCurrentIndex(idx)
+                        break
+                self.channel_dropdown.blockSignals(False)
+        except Exception as e:
+            print(f"Error picking random channel: {e}")
+
+    def update_epg_labels(self, epg_data):
+        self.channel_dropdown.blockSignals(True)
+        for idx in range(self.channel_dropdown.count()):
+            channel_num = self.channel_dropdown.itemData(idx)
+            channel_data = self.master_app.channels_by_number.get(str(channel_num))
+            if channel_data:
+                channel_name = channel_data[0]
+                show_info = epg_data.get(channel_name, {})
+                now_title = show_info.get('now_title', '')
+                
+                if now_title and now_title != "No Title":
+                    new_text = f"{channel_num} - {channel_name} ({now_title})"
+                else:
+                    new_text = f"{channel_num} - {channel_name}"
+                self.channel_dropdown.setItemText(idx, new_text)
+        self.channel_dropdown.blockSignals(False)
 
     def update_position(self):
         if not self.target_widget.isVisible() or self.target_widget.width() == 0:
@@ -340,6 +494,12 @@ class OverlayControls(QWidget):
     def fade_in(self):
         self.hide_timer.stop()
         self.update_position()
+        
+        self.channel_dropdown.setVisible(True)
+        self.rand_btn.setVisible(len(self.master_app.players) == 1)
+        self.prev_btn.setVisible(True)
+        self.next_btn.setVisible(True)
+        
         self.show()
         self.raise_()
         
@@ -350,7 +510,51 @@ class OverlayControls(QWidget):
             self.anim.setEndValue(1.0)
             self.anim.start()
 
+    def on_channel_dropdown_changed(self, index):
+        if index < 0: return
+        channel_num = self.channel_dropdown.itemData(index)
+        
+        try:
+            channel_data = self.master_app.channels_by_number[str(channel_num)]
+            
+            # Update the player media
+            media = self.master_app.create_media(channel_data[0], channel_data[1])
+            self.player.set_media(media)
+            self.player.play()
+            
+            # Update the master_app's stream state
+            current_streams = self.master_app.stream_groups[self.master_app.current_group_index]
+            if self.index < len(current_streams):
+                current_streams[self.index] = channel_data
+                
+                # Update EPG if we have one
+                if hasattr(self.master_app, 'epg_overlays') and self.index < len(self.master_app.epg_overlays):
+                    self.master_app.epg_overlays[self.index].channel_name = channel_data[0]
+                    epg_data = getattr(self.master_app, 'epg_data', {})
+                    self.master_app.epg_overlays[self.index].update_data(epg_data.get(channel_data[0], {}))
+            
+            # If we're in 1x1 preset, we should probably also update the preset array so it remembers
+            if hasattr(self.master_app, 'all_groups_labels'):
+                try:
+                    one_by_one_idx = self.master_app.all_groups_labels.index('1x1')
+                    if self.master_app.current_group_index == one_by_one_idx:
+                        self.master_app.stream_groups[one_by_one_idx] = [channel_data]
+                except ValueError:
+                    pass
+                    
+            # Update Top Left Number
+            if self.index < len(self.master_app.channel_overlays):
+                self.master_app.channel_overlays[self.index].real_channel_number = str(channel_num)
+                self.master_app.channel_overlays[self.index].show_number()
+                    
+        except Exception as e:
+            print(f"Error switching channel: {e}")
+
     def fade_out(self):
+        if hasattr(self, 'channel_dropdown') and self.channel_dropdown.view().isVisible():
+            self.hide_timer.start(2500)
+            return
+            
         is_fading_out = self.anim.state() == QPropertyAnimation.Running and self.anim.endValue() == 0.0
         if self.windowOpacity() > 0.0 and not is_fading_out:
             self.anim.stop()
@@ -512,7 +716,7 @@ class EPGOverlay(QWidget):
         self.desc_label.setWordWrap(True)
         
         self.next_label = QLabel("")
-        self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa;")
+        self.next_label.setStyleSheet("font-size: 13px; color: #aaaaaa;")
         
         self.layout.addWidget(self.progress_bar)
         self.layout.addWidget(self.now_label)
@@ -537,16 +741,16 @@ class EPGOverlay(QWidget):
         self.next_label.setWordWrap(True)
         if is_single_fs:
             self.setFixedWidth(900)
-            self.now_label.setStyleSheet("font-weight: bold; font-size: 24px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
-            self.desc_label.setStyleSheet("font-size: 18px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 25px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.desc_label.setStyleSheet("font-size: 19px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
             self.progress_bar.set_fullscreen(True)
-            self.next_label.setStyleSheet("font-size: 18px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.next_label.setStyleSheet("font-size: 19px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
         else:
             self.setFixedWidth(600)
-            self.now_label.setStyleSheet("font-weight: bold; font-size: 14px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
-            self.desc_label.setStyleSheet("font-size: 12px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.now_label.setStyleSheet("font-weight: bold; font-size: 15px; color: white; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.desc_label.setStyleSheet("font-size: 13px; color: #dddddd; border: none; padding: 0px; margin: 0px; background: transparent;")
             self.progress_bar.set_fullscreen(False)
-            self.next_label.setStyleSheet("font-size: 12px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
+            self.next_label.setStyleSheet("font-size: 13px; color: #aaaaaa; border: none; padding: 0px; margin: 0px; background: transparent;")
 
     def update_position(self):
         if not hasattr(self, 'target_widget') or not self.target_widget.isVisible() or self.target_widget.width() == 0:
@@ -723,7 +927,7 @@ class EPGFetcher(QThread):
 class MultiPlayerApp(QMainWindow):
     def __init__(self, config):
         super().__init__()
-        self.setWindowTitle("Multi-TV-player - Videos")
+        self.setWindowTitle("multi-tv-player")
         self.setMinimumSize(640, 480)
         self.setContentsMargins(0, 0, 0, 0)
         
@@ -765,6 +969,8 @@ class MultiPlayerApp(QMainWindow):
         self.stream_groups = [
             [self.channels_by_number[number] for number in group] for group in self.stream_groups_numbers
         ]
+        import copy
+        self.original_stream_groups = copy.deepcopy(self.stream_groups)
         self.current_group_index = 0
 
         # Set application palette to pure black just in case
@@ -790,6 +996,9 @@ class MultiPlayerApp(QMainWindow):
         QShortcut(QKeySequence("Ctrl+W"), self, self.close, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("Up"), self, self.unmute_all, context=Qt.ApplicationShortcut)
         QShortcut(QKeySequence("Down"), self, self.mute_all, context=Qt.ApplicationShortcut)
+        
+        QShortcut(QKeySequence("Left"), self, lambda: self.handle_arrow_cycle(-1), context=Qt.ApplicationShortcut)
+        QShortcut(QKeySequence("Right"), self, lambda: self.handle_arrow_cycle(1), context=Qt.ApplicationShortcut)
             
         # Default main window size to 1080p instead of forcing borderless fullscreen
         self.resize(1920, 1080)
@@ -951,21 +1160,8 @@ class MultiPlayerApp(QMainWindow):
         if event.type() == QEvent.Wheel:
             delta = event.angleDelta().y() if hasattr(event, 'angleDelta') else 0
             if delta != 0:
-                if getattr(self, 'single_fs_active', False):
-                    # Scroll down -> next channel, Scroll up -> prev channel (no wrapping)
-                    if delta < 0:
-                        next_idx = min(self.single_fs_index + 1, len(self.videos) - 1)
-                    else:
-                        next_idx = max(self.single_fs_index - 1, 0)
-                        
-                    if next_idx != self.single_fs_index:
-                        self.toggle_single_fullscreen(next_idx)
-                else:
-                    # In grid view, scroll down to enter single fs on the active (unmuted) video
-                    if delta < 0:
-                        unmuted_indices = [i for i, o in enumerate(self.overlays) if o.player.audio_get_mute() == 0]
-                        target_idx = unmuted_indices[0] if unmuted_indices else 0
-                        self.toggle_single_fullscreen(target_idx)
+                direction = 1 if delta < 0 else -1
+                self.handle_arrow_cycle(direction)
                 return True
                 
         if event.type() in (QEvent.Move, QEvent.Resize):
@@ -1009,8 +1205,100 @@ class MultiPlayerApp(QMainWindow):
             if obj in self.videos:
                 index = self.videos.index(obj)
                 self.toggle_single_fullscreen(index)
+        # Determine if we clicked on the video directly
+        obj_is_video = obj in self.videos
+        obj_is_overlay = obj in self.overlays
+
+    def handle_arrow_cycle(self, direction):
+        # Only tune channels if in 1x1 mode
+        current_streams = self.stream_groups[self.current_group_index]
+        if len(current_streams) == 1:
+            self.cycle_channel(0, direction)
+        else:
+            # Grid mode: scroll/arrows navigate the grid indices
+            if self.single_fs_active and self.single_fs_index >= 0:
+                # Cycle fullscreen index instantly
+                next_idx = self.single_fs_index + direction
+                if 0 <= next_idx < len(self.players):
+                    self.mute_only(next_idx)
+                    if not (self.single_fs_active and self.single_fs_index == next_idx):
+                        self.toggle_single_fullscreen(next_idx)
+            else:
+                # Cycle unmuted video focus in grid and jump to fullscreen
+                unmuted_indices = [i for i, o in enumerate(self.overlays) if o.player.audio_get_mute() == 0]
+                if unmuted_indices:
+                    next_idx = unmuted_indices[0]
+                    if 0 <= next_idx < len(self.players):
+                        self.mute_only(next_idx)
+                        self.toggle_single_fullscreen(next_idx)
+                else:
+                    self.mute_only(0)
+                    self.toggle_single_fullscreen(0)
+
+    def cycle_channel(self, video_index, direction):
+        if video_index >= len(self.players): return
+        
+        current_streams = self.stream_groups[self.current_group_index]
+        if video_index >= len(current_streams): return
+        
+        current_url = current_streams[video_index][1]
+        
+        try:
+            sorted_channels = sorted(
+                self.channels_by_number.items(), 
+                key=lambda item: int(item[0]) if str(item[0]).isdigit() else 999999
+            )
+            # Find current channel index in the sorted list
+            current_sorted_index = -1
+            for idx, (num, data) in enumerate(sorted_channels):
+                if data[1] == current_url:
+                    current_sorted_index = idx
+                    break
+                    
+            if current_sorted_index != -1:
+                next_index = (current_sorted_index + direction) % len(sorted_channels)
+                next_channel_num, next_channel_data = sorted_channels[next_index]
                 
-        return super().eventFilter(obj, event)
+                # Switch the video player
+                media = self.create_media(next_channel_data[0], next_channel_data[1])
+                self.players[video_index].set_media(media)
+                self.players[video_index].play()
+                
+                # Update the stream array
+                current_streams[video_index] = next_channel_data
+                
+                # Update the 1x1 preset array specifically so state is maintained globally
+                if hasattr(self, 'all_groups_labels'):
+                    try:
+                        one_by_one_idx = self.all_groups_labels.index('1x1')
+                        if self.current_group_index == one_by_one_idx:
+                            self.stream_groups[one_by_one_idx] = [next_channel_data]
+                    except ValueError:
+                        pass
+                
+                # Update UI overlays
+                if video_index < len(self.channel_overlays):
+                    self.channel_overlays[video_index].real_channel_number = str(next_channel_num)
+                    self.channel_overlays[video_index].show_number()
+                    
+                if hasattr(self, 'epg_overlays') and video_index < len(self.epg_overlays):
+                    self.epg_overlays[video_index].channel_name = next_channel_data[0]
+                    epg_data = getattr(self, 'epg_data', {})
+                    self.epg_overlays[video_index].update_data(epg_data.get(next_channel_data[0], {}))
+                    
+                # Update the dropdown if it is visible
+                if video_index < len(self.overlays):
+                    dropdown = getattr(self.overlays[video_index], 'channel_dropdown', None)
+                    if dropdown:
+                        dropdown.blockSignals(True)
+                        for idx in range(dropdown.count()):
+                            num = dropdown.itemData(idx)
+                            if num == str(next_channel_num):
+                                dropdown.setCurrentIndex(idx)
+                                break
+                        dropdown.blockSignals(False)
+        except Exception as e:
+            print(f"Error cycling channel: {e}")
 
     def handle_single_click(self, index, is_left_click=True):
         if index < len(self.overlays):
@@ -1047,11 +1335,13 @@ class MultiPlayerApp(QMainWindow):
         app_fs = getattr(self, 'app_fs_active', False)
         if app_fs or self.single_fs_active:
             if not self.isFullScreen():
+                self._was_maximized = self.isMaximized()
                 self.showFullScreen()
         else:
             if self.isFullScreen():
                 self.showNormal()
-                self.showMaximized()
+                if getattr(self, '_was_maximized', False):
+                    self.showMaximized()
 
     def toggle_app_fullscreen(self):
         app_fs = getattr(self, 'app_fs_active', False)
@@ -1115,7 +1405,7 @@ class MultiPlayerApp(QMainWindow):
                 v.show()
             self.single_fs_active = False
             self.single_fs_index = -1
-            self.overlays[index].fs_btn.setText("🔲")
+            self.overlays[index].fs_btn.setText("🗖")
             for chan_overlay in getattr(self, 'channel_overlays', []):
                 chan_overlay.show_number()
                 
@@ -1150,11 +1440,11 @@ class MultiPlayerApp(QMainWindow):
                 self.epg_overlays[index].fade_in()
             
             if self.single_fs_index != -1 and self.single_fs_index != index:
-                self.overlays[self.single_fs_index].fs_btn.setText("🔲")
+                self.overlays[self.single_fs_index].fs_btn.setText("🗖")
                 
             self.single_fs_index = index
             self.last_single_fs_index = index
-            self.overlays[index].fs_btn.setText("🔳")
+            self.overlays[index].fs_btn.setText("🗖")
             
             # Automatically unmute this video and mute all others
             self.mute_only(index)
@@ -1177,6 +1467,10 @@ class MultiPlayerApp(QMainWindow):
         for overlay in self.epg_overlays:
             if hasattr(overlay, 'channel_name'):
                 overlay.update_data(data.get(overlay.channel_name, {}))
+                
+        for overlay in self.overlays:
+            if hasattr(overlay, 'update_epg_labels'):
+                overlay.update_epg_labels(data)
                 
         if getattr(self, 'epg_mode', 'locked') == 'locked':
             for o in self.epg_overlays:
@@ -1230,6 +1524,12 @@ class MultiPlayerApp(QMainWindow):
                     if channel_number:
                         self.channels_by_number[channel_number] = (channel_name, stream_url)
 
+    def create_media(self, channel_name, channel_url):
+        media = self.instance.media_new(channel_url)
+        if 'radio' in channel_name.lower():
+            media.add_option('network-caching=500')
+        return media
+
     def setup_players(self, streams):
         self.epg_mode = 'hover'
         for player in self.players:
@@ -1266,7 +1566,7 @@ class MultiPlayerApp(QMainWindow):
 
         for i, (name,url) in enumerate(streams):
             player = self.instance.media_player_new()
-            media = self.instance.media_new(url)
+            media = self.create_media(name, url)
             player.set_media(media)
             self.players.append(player)
 
@@ -1383,6 +1683,8 @@ class MultiPlayerApp(QMainWindow):
                 return
             self.current_group_index = group_index
             print(f"Switched to group {group_index}")
+            import copy
+            self.stream_groups[group_index] = copy.deepcopy(self.original_stream_groups[group_index])
             self.setup_players(self.stream_groups[group_index])
             QTimer.singleShot(1000, self.subs_all_on)
 
