@@ -259,6 +259,11 @@ class OverlayControls(QWidget):
         self.channel_dropdown = QComboBox()
         self.channel_dropdown.wheelEvent = lambda event: event.ignore()
         self.channel_dropdown.setMaxVisibleItems(30)
+        
+        # Fix dropdown rendering behind the main window when "Always on Top" is active
+        popup = self.channel_dropdown.view().window()
+        popup.setWindowFlags(popup.windowFlags() | Qt.WindowStaysOnTopHint)
+        
         self.channel_dropdown.setStyleSheet("""
             QComboBox {
                 background-color: rgba(30, 30, 30, 220);
@@ -931,7 +936,6 @@ class MultiPlayerApp(QMainWindow):
         self.setWindowTitle("multi-tv-player")
         self.setMinimumSize(640, 480)
         self.setContentsMargins(0, 0, 0, 0)
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         
         # We apply this universally to KILL any default Qt margins or lines
         self.setStyleSheet("background-color: black; border: none;")
