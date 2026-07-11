@@ -1,4 +1,5 @@
 import sys
+import os
 import math
 from pathlib import Path
 from datetime import datetime
@@ -930,6 +931,7 @@ class MultiPlayerApp(QMainWindow):
         self.setWindowTitle("multi-tv-player")
         self.setMinimumSize(640, 480)
         self.setContentsMargins(0, 0, 0, 0)
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
         
         # We apply this universally to KILL any default Qt margins or lines
         self.setStyleSheet("background-color: black; border: none;")
@@ -1125,6 +1127,7 @@ class MultiPlayerApp(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         import sys
+        import os
         if sys.platform == 'win32':
             try:
                 import ctypes
@@ -1599,7 +1602,7 @@ class MultiPlayerApp(QMainWindow):
             # Grid Second Row: 87, 18, 247
             override_numbers = ["24", "109", "63", "87", "18", "247"]
             initial_override = None
-            if i < len(override_numbers):
+            if not os.path.exists(".fastboot") and i < len(override_numbers):
                 initial_override = override_numbers[i]
                 
             chan_overlay = ChannelOverlay(self, video_widget, channel_number, initial_override)
@@ -1623,8 +1626,12 @@ class MultiPlayerApp(QMainWindow):
                 
         if not hasattr(self, 'load_timer'):
             self.load_timer = QTimer(self)
-            self.load_timer.setInterval(1000)
             self.load_timer.timeout.connect(self._load_next_stream)
+        
+        if os.path.exists(".fastboot"):
+            self.load_timer.setInterval(0)
+        else:
+            self.load_timer.setInterval(1000)
             
         # Start the first stream immediately, and the timer will handle the rest
         self.load_timer.stop()
@@ -1641,14 +1648,17 @@ class MultiPlayerApp(QMainWindow):
             return
             
         idx = self.load_queue.pop(0)
+        is_fastboot = os.path.exists(".fastboot")
+        delay = 0 if is_fastboot else 3600
+        
         if idx < len(self.players) and idx < len(self.channel_overlays):
             self.players[idx].play()
             if getattr(self, 'epg_mode', 'locked') == 'locked' and idx < len(getattr(self, 'epg_overlays', [])):
                 if self.epg_overlays[idx].windowOpacity() == 0.0:
-                    QTimer.singleShot(3600, self.epg_overlays[idx].show_instantly)
+                    QTimer.singleShot(delay, self.epg_overlays[idx].show_instantly)
             
             if not self.load_queue:
-                QTimer.singleShot(3600, self._auto_lock_epg)
+                QTimer.singleShot(delay, self._auto_lock_epg)
 
     def _auto_lock_epg(self):
         if getattr(self, 'epg_mode', 'hover') != 'locked':
@@ -2001,6 +2011,7 @@ class ControlsWindow(QWidget):
 
 if __name__ == "__main__":
     import sys
+    import os
     import signal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     if sys.platform == 'win32':
